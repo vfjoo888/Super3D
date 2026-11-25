@@ -298,8 +298,15 @@ void BufferGetMemoryOffset(CPU& c) {
     c.x[0] = b ? b->offset : 0;
 }
 
-void BufferFlushMappedRange(CPU&) {}
-void BufferInvalidateMappedRange(CPU&) {}
+void BufferFlushMappedRange(CPU& c) {  // (NVNbuffer*, ptrdiff_t offset, size_t size)
+    if (auto* b = get<Buffer>(c.x[0]); b && b->memory && c.x[2])
+        static_buf_invalidate(b->memory + c.x[1], c.x[2]);
+}
+void BufferInvalidateMappedRange(CPU&) {
+    wait_submits_so_far(kWaitFinalize);
+    worker_finish();
+    gpu_wait(gpu_write_back_serial());
+}
 
 // ---- textures ---------------------------------------------------------------------------------------------------
 

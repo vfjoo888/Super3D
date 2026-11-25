@@ -304,6 +304,15 @@ void replay_clear_texture(VkCommandBuffer cb, const Cmd& c, const CmdList& list)
     uint32_t base_layer = std::min(v.min_layer, img->layers - 1);
     uint32_t layer_count = v.layers ? std::min(v.layers, img->layers - base_layer) : img->layers - base_layer;
     transition(cb, *img, VK_IMAGE_LAYOUT_GENERAL);
+    VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    b.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT | VK_ACCESS_MEMORY_READ_BIT;
+    b.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    b.oldLayout = b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.image = img->image;
+    b.subresourceRange = {img->aspect, base_level, level_count, base_layer, layer_count};
+    p_vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                           nullptr, 1, &b);
     VkImageSubresourceRange r{img->aspect, base_level, level_count, base_layer, layer_count};
     if (img->aspect == VK_IMAGE_ASPECT_COLOR_BIT) {
         VkClearColorValue cv{};
@@ -313,6 +322,10 @@ void replay_clear_texture(VkCommandBuffer cb, const Cmd& c, const CmdList& list)
         VkClearDepthStencilValue dv{c.f[0], 0};
         p_vkCmdClearDepthStencilImage(cb, img->image, VK_IMAGE_LAYOUT_GENERAL, &dv, 1, &r);
     }
+    b.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    b.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+    p_vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0,
+                           nullptr, 1, &b);
     img->rendered = true;
     img->rendered_at = ++replay::g_stats.done;
 }
