@@ -49,12 +49,28 @@ void log_sampler(const SamplerInfo& s) {
 void SamplerInitialize(CPU& c) {  // NVNboolean (NVNsampler*, const NVNsamplerBuilder*)
     uint64_t guest = c.x[0], builder = c.x[1];
     SamplerInfo info = decode_builder(c, builder);
-    make<Sampler>(guest).info = info;
+    static std::atomic<uint64_t> g_next_samp_token{0};
+    uint64_t tok = kSampTokenBase | (++g_next_samp_token & 0x0FFFFFFFFFFFFFFFull);
+    st<uint64_t>(guest, kSampTokenMagic);
+    st<uint64_t>(guest + 8, tok);
+    make<Sampler>(tok).info = info;
     log_sampler(info);
     c.x[0] = 1;
 }
 
-void SamplerFinalize(CPU& c) { destroy(c.x[0]); }
+void SamplerFinalize(CPU& c) {
+    uint64_t orig = c.x[0];
+    uint64_t key = resolve_sampler_key(orig);
+    if (key != orig) st<uint64_t>(orig, 0);
+    destroy(key);
+}
+
+void SamplerCompare(CPU& c) {  // NVNboolean (const NVNsampler*, const NVNsampler*)
+    auto* a = get<Sampler>(c.x[0]);
+    auto* b = get<Sampler>(c.x[1]);
+    if (!a || !b) { c.x[0] = (a == b) ? 1 : 0; return; }
+    c.x[0] = std::memcmp(&a->info, &b->info, sizeof(SamplerInfo)) == 0 ? 1 : 0;
+}
 
 void register_info(uint64_t pool, uint32_t id, const SamplerInfo& info) {
     if (auto* d = get<DescriptorPool>(pool)) {
@@ -119,6 +135,7 @@ void GetBorderColor(CPU& c) {
 
 NX_HLE("nvnSamplerInitialize", SamplerInitialize);
 NX_HLE("nvnSamplerFinalize", SamplerFinalize);
+NX_HLE("nvnSamplerCompare", SamplerCompare);
 NX_HLE("nvnSamplerPoolRegisterSampler", RegisterSampler);
 NX_HLE("nvnSamplerPoolRegisterSamplerBuilder", RegisterSamplerBuilder);
 NX_HLE("nvnSamplerGetMinMagFilter", GetMinMagFilter);

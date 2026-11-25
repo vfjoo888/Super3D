@@ -57,7 +57,7 @@ void note_replaced(uint64_t guest) {
 Object* find_object(uint64_t guest, uint64_t mark) {
     auto it = objects().find(guest);
     if (it == objects().end()) {
-        uint64_t tok = resolve_texture_key(guest);
+        uint64_t tok = resolve_object_key(guest);
         if (tok != guest) {
             guest = tok;
             it = objects().find(guest);
