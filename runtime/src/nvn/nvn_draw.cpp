@@ -14,6 +14,7 @@
 
 #include "nvn_draw_state.h"
 #include "nvn_ultrawide.h"
+#include <nx/game.h>
 #include "platform.h"
 
 namespace nx::nvn {
@@ -739,14 +740,17 @@ bool draw(VkCommandBuffer cb, const Targets& t, uint32_t mode, bool indexed, con
             }
         }
     }
-    if (g_uw_wide && ui_pick && uw_vs_scaled(vs)) {
+    const bool is_sm3dw = nx::game::kInfo.program_id == 0x010028600EBDA000ull;
+    const Texture* primary_tex = t.color_count && t.colors[0] ? get<Texture>(t.colors[0]) : nullptr;
+    const bool sm3dw_hdr_target = is_sm3dw && primary_tex && primary_tex->format == 0x3f;
+    if (g_uw_wide && ui_pick && !sm3dw_hdr_target && uw_vs_scaled(vs)) {
         bool samples_wide = false;
         bool samples_hud_layer = false;
         bool samples_powerup_candidate = false;
         bool samples_powerup_icon = false;
         bool samples_stock_shadow = false;
         const uint32_t count = indexed ? uint32_t(c.i[0]) : uint32_t(c.i[1]);
-        if (count <= 6) for (const ResolvedTexture& r : g_textures.resolved) {
+        if (is_sm3dw || count <= 6) for (const ResolvedTexture& r : g_textures.resolved) {
             GpuImage* sampled = r.image;
             samples_wide |= sampled && sampled->uw;
             // Wonder composites its HUD from this fixed-size layer. It is screen-anchored at 16:9

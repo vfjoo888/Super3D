@@ -2058,6 +2058,7 @@ bool wanted(const std::vector<std::string>& args, bool& config_mode) {
 }  // namespace
 
 void prepare_ultrawide_layouts() {
+    if (game::kInfo.program_id != 0x010015100B514000ull) return;
     const char* profile = std::getenv("NX_ASPECT_PROFILE");
     if (!profile || (std::strcmp(profile, "21:9") != 0 && std::strcmp(profile, "32:9") != 0)) return;
     const Kit kit = find_kit();

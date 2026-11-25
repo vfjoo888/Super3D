@@ -17,6 +17,7 @@
 
 #include "nvn.h"
 #include "nvn_pipeline.h"
+#include <nx/game.h>
 #include <nx/module.h>
 #include <nx/runtime.h>
 
@@ -64,7 +65,7 @@ uint32_t uw_widen(uint32_t w) {
 }
 
 bool uw_is_target(const Texture& t) {
-    if (!uw_on() || t.target != 1 || (t.flags & 4) || t.width < 16 || t.height < 9) return false;
+    if (!uw_on() || (t.target != 1 && t.target != 4) || (t.flags & 4) || t.width < 16 || t.height < 9) return false;
     return std::fabs(double(t.width) / double(t.height) - k169) / k169 <= 0.03;
 }
 
@@ -183,6 +184,7 @@ void cam_scan(bool throttled) {
 
 void uw_cameras(uint64_t present) {
     if (!uw_on()) return;
+    if (game::kInfo.program_id != 0x010015100B514000ull) return;
     static const bool off = std::getenv("NX_UW_CAMERA") && std::getenv("NX_UW_CAMERA")[0] == '0';
     if (off) return;
     static std::once_flag once;
@@ -522,3 +524,20 @@ bool patch_fragcoord_x_scale(const std::vector<uint32_t>& in, std::vector<uint32
 }
 
 }  // namespace nx::nvn
+
+namespace nx {
+
+float uw_aspect_scale() {
+    return nvn::uw_factor();
+}
+
+uint32_t uw_aspect_bits() {
+    const float k = nvn::uw_factor();
+    if (k <= 1.0f) return 0x3fe38e39u;  // exact 16.0f / 9.0f
+    const float aspect = float((16.0 / 9.0) * double(k));
+    uint32_t bits = 0;
+    std::memcpy(&bits, &aspect, sizeof bits);
+    return bits;
+}
+
+}  // namespace nx

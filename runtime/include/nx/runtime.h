@@ -124,5 +124,8 @@ uint64_t system_tick();
 void add_virtual_file(const std::string& path, std::string data);
 // The contents of a real game file under the data folder ("" if missing).
 std::string read_game_file(const std::string& relative_to_romfs);
+// Ultrawide aspect helpers for game-specific camera/projection hooks (1.0f / 0x3fe38e39 in 16:9).
+float uw_aspect_scale();
+uint32_t uw_aspect_bits();
 
 }  // namespace nx

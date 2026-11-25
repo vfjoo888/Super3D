@@ -762,7 +762,8 @@ static bool parse_pc_settings_file(const std::filesystem::path& ini_path, PcMenu
         const char* flags[] = {"NX_TERRAIN_MOD_ASPECT_TEST", "NX_UW_POWERUP_TEST", "NX_UW_FLOWER_TEST",
             "NX_UW_MAP_ALIGN_TEST", "NX_UW_MAP_COMPOSITE_TEST", "NX_UW_MAP_CARD_TEST",
             "NX_UW_MAP_MARKERS_TEST", "NX_UW_MAP_DETAIL_TEST", "NX_UW_SETTINGS_SCISSOR_TEST"};
-        for (const char* flag : flags) _putenv_s(flag, ratio ? "1" : "0");
+        const bool is_wonder = nx::game::kInfo.program_id == 0x010015100B514000ull;
+        for (const char* flag : flags) _putenv_s(flag, (is_wonder && ratio) ? "1" : "0");
         _putenv_s("NX_UW_FLOWER_ALT_TEST", "0");
     }
     return true;
