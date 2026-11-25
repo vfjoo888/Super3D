@@ -288,6 +288,40 @@ ServiceRegistrar reg_applet_oe("appletOE", [] {
     });
 });
 
+// nn::swkbd::InlineKeyboard stubs: SM3DW initializes InlineKeyboard in the background when entering the game;
+// without a software keyboard applet, stubbing it lets boot proceed into gameplay.
+void swkbd_noop(CPU& c) { c.x[0] = 0; }
+void swkbd_work_size(CPU& c) { c.x[0] = 0x1000; }
+void swkbd_img_req(CPU& c) {
+    if (c.x[1]) st<uint64_t>(c.x[1], 0x1000);
+    if (c.x[2]) st<uint64_t>(c.x[2], 0x1000);
+    c.x[0] = 0;
+}
+void swkbd_win_size(CPU& c) {
+    if (c.x[1]) st<int32_t>(c.x[1], 0);
+    if (c.x[2]) st<int32_t>(c.x[2], 0);
+    c.x[0] = 0;
+}
+
 }  // namespace
+
+NX_HLE("_ZN2nn5swkbd14InlineKeyboardC1Ev", swkbd_noop);
+NX_HLE("_ZN2nn5swkbd14InlineKeyboardD1Ev", swkbd_noop);
+NX_HLE("_ZN2nn5swkbd14InlineKeyboard10InitializeEPv", swkbd_noop);
+NX_HLE("_ZN2nn5swkbd14InlineKeyboard8FinalizeEv", swkbd_noop);
+NX_HLE("_ZN2nn5swkbd14InlineKeyboard4CalcEv", swkbd_noop);
+NX_HLE("_ZN2nn5swkbd14InlineKeyboard6AppearERKNS0_9AppearArgE", swkbd_noop);
+NX_HLE("_ZN2nn5swkbd14InlineKeyboard9DisappearEv", swkbd_noop);
+NX_HLE("_ZN2nn5swkbd14InlineKeyboard8GetImageEPvm", swkbd_noop);
+NX_HLE("_ZN2nn5swkbd14InlineKeyboard25GetImageMemoryRequirementEPmS2_", swkbd_img_req);
+NX_HLE("_ZN2nn5swkbd14InlineKeyboard25GetRequiredWorkBufferSizeEv", swkbd_work_size);
+NX_HLE("_ZNK2nn5swkbd14InlineKeyboard13GetWindowSizeEPiS2_", swkbd_win_size);
+NX_HLE("_ZN2nn5swkbd14InlineKeyboard12SetCursorPosEi", swkbd_noop);
+NX_HLE("_ZN2nn5swkbd14InlineKeyboard12SetInputTextERKNS0_9InputTextE", swkbd_noop);
+NX_HLE("_ZN2nn5swkbd14InlineKeyboard22SetMovedCursorCallbackEPFvPKNS0_14MovedCursorArgEE", swkbd_noop);
+NX_HLE("_ZN2nn5swkbd14InlineKeyboard23SetDecidedEnterCallbackEPFvPKNS0_15DecidedEnterArgEE", swkbd_noop);
+NX_HLE("_ZN2nn5swkbd14InlineKeyboard24SetChangedStringCallbackEPFvPKNS0_16ChangedStringArgEE", swkbd_noop);
+NX_HLE("_ZN2nn5swkbd14InlineKeyboard24SetDecidedCancelCallbackEPFvvE", swkbd_noop);
+NX_HLE("_ZN2nn5swkbd14InlineKeyboard27SetFinishedKeyboardCallbackEPFvvE", swkbd_noop);
 
 }  // namespace nx
