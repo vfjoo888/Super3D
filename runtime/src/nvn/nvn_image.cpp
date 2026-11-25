@@ -132,6 +132,8 @@ std::map<StorageKey, std::weak_ptr<GpuImage>> g_live_images;
 GpuImage* image_of(uint64_t guest) {
     Texture* t = get<Texture>(guest);
     if (!t) return nullptr;
+    if (t->render_target.load(std::memory_order_relaxed))
+        t->last_sampled.store(plat::monotonic_ns(), std::memory_order_relaxed);
     // NX_REFRESH_SCALED_RT=1: diagnostic experiment for the 64x36 RGBA8 screen-space shadow input.
     // Its scene scale can change with dynamic guest resolution while the NVN texture object remains alive.
     static const bool refresh_scaled_rt = std::getenv("NX_REFRESH_SCALED_RT") != nullptr;

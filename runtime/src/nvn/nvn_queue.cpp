@@ -225,6 +225,18 @@ void WindowAcquireTexture(CPU& c) {
     c.x[0] = 0;
 }
 
+// Legacy NVN 53 API: NVNqueueAcquireTextureResult (NVNqueue*, NVNwindow*, int* textureIndex)
+void QueueAcquireTexture(CPU& c) {
+    auto* w = get<Window>(c.x[1]);
+    int index = 0;
+    if (w && w->active > 0) {
+        index = w->next;
+        w->next = (w->next + 1) % w->active;
+    }
+    if (c.x[2]) st<int32_t>(c.x[2], index);
+    c.x[0] = 0;
+}
+
 void WindowGetNumTextures(CPU& c) {
     auto* w = get<Window>(c.x[0]);
     c.x[0] = w ? w->textures.size() : 0;
@@ -517,6 +529,7 @@ NX_HLE("nvnQueueFinish", QueueFinish);
 NX_HLE("nvnQueueFenceSync", QueueFenceSync);
 NX_HLE("nvnQueueWaitSync", QueueWaitSync);
 NX_HLE("nvnQueuePresentTexture", QueuePresentTexture);
+NX_HLE("nvnQueueAcquireTexture", QueueAcquireTexture);
 NX_HLE("nvnWindowInitialize", WindowInitialize);
 NX_HLE("nvnWindowFinalize", WindowFinalize);
 NX_HLE("nvnWindowAcquireTexture", WindowAcquireTexture);

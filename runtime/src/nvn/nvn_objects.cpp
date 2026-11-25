@@ -275,11 +275,15 @@ void BufferFinalize(CPU& c) { destroy(c.x[0]); }
 
 void BufferMap(CPU& c) {
     auto* b = get<Buffer>(c.x[0]);
+    static int miss = 0;
+    if (!b && c.x[0] && ++miss <= 5) log("nvn: BufferMap unknown %llx (lr %s)", (unsigned long long)c.x[0], describe(c.x[30]).c_str());
     c.x[0] = b ? b->memory : 0;
 }
 
 void BufferGetAddress(CPU& c) {
     auto* b = get<Buffer>(c.x[0]);
+    static int miss = 0;
+    if (!b && c.x[0] && ++miss <= 5) log("nvn: BufferGetAddress unknown %llx (lr %s)", (unsigned long long)c.x[0], describe(c.x[30]).c_str());
     c.x[0] = b ? b->gpu : 0;
 }
 
@@ -530,8 +534,15 @@ void expire_kept() {
         auto o = objects().find(key);
         auto* t = o == objects().end() ? nullptr : dynamic_cast<Texture*>(o->second.get());
         // Never sampled: 250 ms (a course load finalizes thousands); sampled: 2 s after the last use.
-        uint64_t sampled = t ? t->last_sampled.load() : 0;
-        if (t && (sampled ? std::max(since, sampled) + 2'000'000'000ull : since + 250'000'000ull) > now) break;
+        uint64_t sampled = t ? t->last_sampled.load(std::memory_order_relaxed) : 0;
+        if (t && (sampled ? std::max(since, sampled) + 2'000'000'000ull : since + 250'000'000ull) > now) {
+            if (sampled > since) {
+                g_kept_order.pop_front();
+                g_kept_order.push_back({key, sampled});
+                continue;
+            }
+            break;
+        }
         g_kept_order.pop_front();
         if (!t) continue;
         g_registered.erase(key);
@@ -571,6 +582,19 @@ void TextureFinalize(CPU& c) {
         for (auto& [pool, set] : pool_textures()) set.erase(guest);
         expire_kept();
         if (kept) return;
+        // On NVN hardware, SetRenderTargets / Copy / Clear bake the texture descriptor into the command stream at
+        // recording time, so a game may finalize the CPU NVNtexture before the command buffer is submitted (e.g.
+        // SM3DW's pipelined HDR target 1920x1080 RGBA16F). Keep finalized tokenized render targets alive until
+        // expire_kept() retires them after going unused.
+        if (!old && (guest & 0xF000000000000000ull) == kTexTokenBase) {
+            if (auto o = objects().find(guest); o != objects().end()) {
+                if (auto* t = dynamic_cast<Texture*>(o->second.get());
+                    t && t->render_target.load(std::memory_order_relaxed)) {
+                    g_kept_order.push_back({guest, plat::monotonic_ns()});
+                    return;
+                }
+            }
+        }
         if (!old) {  // in the same section (#55)
             if (auto o = objects().find(guest); o != objects().end()) defer_object(std::move(o->second)), objects().erase(o);
             return;
