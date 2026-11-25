@@ -187,6 +187,12 @@ std::shared_ptr<Service> common_state_getter() {
 
 std::shared_ptr<Service> self_controller() {
     return svc("ISelfController", [](Service& s) {
+        s.cmds[9] = [](IpcCtx& c) {  // GetLibraryAppletLaunchableEvent
+            auto e = std::make_shared<EventState>();
+            e->signaled = true;
+            c.out_copy.push_back(event_handle(std::move(e)));
+            return 0u;
+        };
         s.cmds[40] = [](IpcCtx& c) { c.push<uint64_t>(1); return 0u; };  // CreateManagedDisplayLayer
         s.cmds[0] = [](IpcCtx&) { return 0u; };                             // Exit
         s.cmds[62] = [](IpcCtx&) { return 0u; };                            // SetIdleTimeDetectionExtension

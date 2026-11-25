@@ -331,6 +331,10 @@ void ShowControllerSupport(CPU& c) {                     // (ControllerSupportRe
     st<uint32_t>(c.x[0] + 4, 0);  // selected npad id: No1
     c.x[0] = 0;
 }
+void ShowControllerSupportNoResult(CPU& c) {  // (const ControllerSupportArg&)
+    log("hid: controller support (no result) -> ok");
+    c.x[0] = 0;
+}
 void GetTouchScreenState(CPU& c) {  // (TouchScreenState<N>* out)
     static std::atomic<int64_t> sample{1};
     if (c.x[0]) {
@@ -366,6 +370,7 @@ NX_HLE("_ZN2nn3hid25GetVibrationDeviceHandlesEPNS0_21VibrationDeviceHandleEiRKjN
 NX_HLE("_ZN2nn3hid25InitializeVibrationDeviceERKNS0_21VibrationDeviceHandleE", noop);
 NX_HLE("_ZN2nn3hid22GetVibrationDeviceInfoEPNS0_19VibrationDeviceInfoERKNS0_21VibrationDeviceHandleE", GetVibrationDeviceInfo);
 NX_HLE("_ZN2nn3hid21ShowControllerSupportEPNS0_27ControllerSupportResultInfoERKNS0_20ControllerSupportArgE", ShowControllerSupport);
+NX_HLE("_ZN2nn3hid21ShowControllerSupportERKNS0_20ControllerSupportArgE", ShowControllerSupportNoResult);
 // SDK 16 (Super Mario Bros. Wonder)
 NX_HLE("_ZN2nn3hid13GetNpadStatesEPNS0_16NpadFullKeyStateEiRKj", GetNpadStatesFullKey);
 NX_HLE("_ZN2nn3hid13GetNpadStatesEPNS0_16NpadJoyDualStateEiRKj", GetNpadStatesOther);
