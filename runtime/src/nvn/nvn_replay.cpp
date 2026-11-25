@@ -61,6 +61,10 @@ void replay_list(VkCommandBuffer cb, Targets& st, const CmdList& list, int depth
             }
             case Cmd::ClearColor:
             case Cmd::ClearDepthStencil: draw_clear(cb, st, c); break;
+            case Cmd::ClearTexture:
+                draw_end_rendering(cb, 5);
+                replay_clear_texture(cb, c, list);
+                break;
             case Cmd::CallList:
                 if (depth < 8) {
                     if (auto l = submit_command_list(c.a[0])) {

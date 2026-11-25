@@ -809,8 +809,19 @@ NX_HLE("nvnBufferGetMemoryPool", BufferGetMemoryPool);
 NX_HLE("nvnBufferGetMemoryOffset", BufferGetMemoryOffset);
 NX_HLE("nvnBufferFlushMappedRange", BufferFlushMappedRange);
 NX_HLE("nvnBufferInvalidateMappedRange", BufferInvalidateMappedRange);
+void TextureCompare(CPU& c) {  // NVNboolean (const NVNtexture*, const NVNtexture*)
+    auto* a = get<Texture>(c.x[0]);
+    auto* b = get<Texture>(c.x[1]);
+    if (!a || !b) { c.x[0] = (a == b) ? 1 : 0; return; }
+    c.x[0] = (a->memory == b->memory && a->target == b->target && a->format == b->format &&
+              a->width == b->width && a->height == b->height && a->depth == b->depth &&
+              a->levels == b->levels && a->samples == b->samples && a->flags == b->flags &&
+              a->stride == b->stride && std::memcmp(a->swizzle, b->swizzle, 4) == 0) ? 1 : 0;
+}
+
 NX_HLE("nvnTextureInitialize", TextureInitialize);
 NX_HLE("nvnTextureFinalize", TextureFinalize);
+NX_HLE("nvnTextureCompare", TextureCompare);
 NX_HLE("nvnTextureGetWidth", TextureGetWidth);
 NX_HLE("nvnTextureGetHeight", TextureGetHeight);
 NX_HLE("nvnTextureGetDepth", TextureGetDepth);

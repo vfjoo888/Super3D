@@ -292,4 +292,29 @@ void draw_clear(VkCommandBuffer cb, const Targets& t, const Cmd& c) {
     pass_mark_written(color ? 1u << c.n : 1u << 8);  // a later draw sampling it needs a fresh pass
 }
 
+void replay_clear_texture(VkCommandBuffer cb, const Cmd& c, const CmdList& list) {
+    clears_flush(cb);
+    GpuImage* img = c.a[0] ? image_of(c.a[0]) : nullptr;
+    if (!img) return;
+    ViewInfo v{};
+    if (c.blob < list.blobs.size() && list.blobs[c.blob].size() == sizeof(ViewInfo))
+        std::memcpy(&v, list.blobs[c.blob].data(), sizeof v);
+    uint32_t base_level = std::min(v.base_level, img->levels - 1);
+    uint32_t level_count = v.levels ? std::min(v.levels, img->levels - base_level) : img->levels - base_level;
+    uint32_t base_layer = std::min(v.min_layer, img->layers - 1);
+    uint32_t layer_count = v.layers ? std::min(v.layers, img->layers - base_layer) : img->layers - base_layer;
+    transition(cb, *img, VK_IMAGE_LAYOUT_GENERAL);
+    VkImageSubresourceRange r{img->aspect, base_level, level_count, base_layer, layer_count};
+    if (img->aspect == VK_IMAGE_ASPECT_COLOR_BIT) {
+        VkClearColorValue cv{};
+        std::memcpy(cv.float32, c.f, 16);
+        p_vkCmdClearColorImage(cb, img->image, VK_IMAGE_LAYOUT_GENERAL, &cv, 1, &r);
+    } else {
+        VkClearDepthStencilValue dv{c.f[0], 0};
+        p_vkCmdClearDepthStencilImage(cb, img->image, VK_IMAGE_LAYOUT_GENERAL, &dv, 1, &r);
+    }
+    img->rendered = true;
+    img->rendered_at = ++replay::g_stats.done;
+}
+
 }  // namespace nx::nvn

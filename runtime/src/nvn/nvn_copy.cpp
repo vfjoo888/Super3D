@@ -38,7 +38,7 @@ void CopyTextureToTexture(CPU& c) {
     }
     info.flags = uint32_t(c.x[7]);
     Cmd cmd{Cmd::CopyTextureToTexture};
-    cmd.a[0] = c.x[1], cmd.a[1] = c.x[4];
+    cmd.a[0] = resolve_texture_key(c.x[1]), cmd.a[1] = resolve_texture_key(c.x[4]);
     record(c.x[0], cmd, &info, sizeof info);
 }
 

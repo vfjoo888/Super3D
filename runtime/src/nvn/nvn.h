@@ -326,7 +326,7 @@ VkFormat vk_vertex_format(uint32_t format);
 
 struct Cmd {
     enum Op : uint8_t {
-        SetRenderTargets, ClearColor, ClearDepthStencil, SetViewport, SetScissor, CallList,
+        SetRenderTargets, ClearColor, ClearDepthStencil, ClearTexture, SetViewport, SetScissor, CallList,
         SetDepthRange, BindProgram, BindUniformBuffer, BindStorageBuffer, BindTexture, BindVertexBuffer,
         BindVertexAttribs, BindVertexStreams, BindBlendState, BindColorState, BindChannelMaskState,
         BindDepthStencilState, BindPolygonState, SetBlendColor, UpdateUniformBuffer, SetTexturePool, SetSamplerPool,

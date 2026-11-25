@@ -258,7 +258,10 @@ GpuImage* image_of(uint64_t guest) {
     VkImageCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     // 3D textures are rendered one slice at a time (a colour-grading LUT): 2D views of a slice need this flag
     // (Metal otherwise refuses a 2D view of a 3D texture).
-    ci.flags = cube ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : is3d ? VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT : 0;
+    // SM3DW creates some cubemaps as 2D arrays with 6+ square layers and samples them as samplerCube: mark them
+    // CUBE_COMPATIBLE so Vulkan allows VK_IMAGE_VIEW_TYPE_CUBE views instead of falling back to a black dummy.
+    const bool cube_compat = cube || (t->target == 4 && img->width == img->height && img->layers >= 6);
+    ci.flags = cube_compat ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : is3d ? VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT : 0;
     // Colour images may be viewed in another format of the same size (an sRGB view of RGBA8, docs/nvn/DEBUG.md #29).
     // With ubwc_flags (Android): only where a view can differ, and with the list of those formats, as Adreno keeps
     // its framebuffer compression (UBWC) on an image whose views are listed; MUTABLE_FORMAT alone turns it off

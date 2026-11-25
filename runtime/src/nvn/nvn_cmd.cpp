@@ -338,6 +338,15 @@ void ClearDepthStencil(CPU& c) {
     record(c.x[0], cmd);
 }
 
+void ClearTexture(CPU& c) {  // (cb, texture, view, region, const float* color, int mask)
+    Cmd cmd{Cmd::ClearTexture};
+    cmd.a[0] = resolve_texture_key(c.x[1]);
+    if (c.x[4]) std::memcpy(cmd.f, reinterpret_cast<const void*>(c.x[4]), 16);
+    cmd.mask = uint32_t(c.x[5]);
+    ViewInfo v = read_view(c, c.x[2]);
+    record(c.x[0], cmd, &v, sizeof v);
+}
+
 void SetViewport(CPU& c) {
     Cmd cmd{Cmd::SetViewport};
     for (int k = 0; k < 4; k++) cmd.i[k] = int32_t(c.x[1 + k]);
@@ -509,6 +518,7 @@ NX_HLE("nvnCommandBufferEndRecording", CommandBufferEndRecording);
 NX_HLE("nvnCommandBufferSetRenderTargets", SetRenderTargets);
 NX_HLE("nvnCommandBufferClearColor", ClearColor);
 NX_HLE("nvnCommandBufferClearDepthStencil", ClearDepthStencil);
+NX_HLE("nvnCommandBufferClearTexture", ClearTexture);
 NX_HLE("nvnCommandBufferSetViewport", SetViewport);
 NX_HLE("nvnCommandBufferSetScissor", SetScissor);
 NX_HLE("nvnCommandBufferCallCommands", CallCommands);

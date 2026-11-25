@@ -337,7 +337,8 @@ bool narrow_view_usage(const GpuImage& img, VkFormat format, VkImageUsageFlags u
 }
 
 bool view_compatible(const GpuImage& img, VkImageViewType type, uint32_t layers) {
-    bool cube_img = img.view_type == VK_IMAGE_VIEW_TYPE_CUBE || img.view_type == VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
+    bool cube_img = img.view_type == VK_IMAGE_VIEW_TYPE_CUBE || img.view_type == VK_IMAGE_VIEW_TYPE_CUBE_ARRAY ||
+                    (img.view_type == VK_IMAGE_VIEW_TYPE_2D_ARRAY && img.width == img.height && img.layers >= 6);
     bool img3d = img.view_type == VK_IMAGE_VIEW_TYPE_3D;
     bool img1d = img.view_type == VK_IMAGE_VIEW_TYPE_1D || img.view_type == VK_IMAGE_VIEW_TYPE_1D_ARRAY;
     switch (type) {
