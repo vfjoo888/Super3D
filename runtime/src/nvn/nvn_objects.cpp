@@ -452,13 +452,17 @@ void TextureInitialize(CPU& c) {  // NVNboolean (NVNtexture*, const NVNtextureBu
             nx::backtrace(c);
         }
     }
+    static std::atomic<uint64_t> g_next_tex_token{0};
+    uint64_t tok = kTexTokenBase | (++g_next_tex_token & 0x0FFFFFFFFFFFFFFFull);
+    st<uint64_t>(guest, kTexTokenMagic);
+    st<uint64_t>(guest + 8, tok);
     if (!old) {
         std::lock_guard lk(objects_lock());
-        note_replaced(guest);
-        keep_for_slots(guest);
-        hand_image_to_snapshots(guest);
-        pool_textures()[t.pool].insert(guest);
-        publish_locked(guest, std::move(fresh));
+        note_replaced(tok);
+        keep_for_slots(tok);
+        hand_image_to_snapshots(tok);
+        pool_textures()[t.pool].insert(tok);
+        publish_locked(tok, std::move(fresh));
     }
     c.x[0] = 1;
 }
@@ -533,7 +537,9 @@ void expire_kept() {
 
 void TextureFinalize(CPU& c) {
     auto guard = reinit_guard();
-    uint64_t guest = c.x[0];
+    uint64_t orig_guest = c.x[0];
+    uint64_t guest = resolve_texture_key(orig_guest);
+    if (guest != orig_guest) st<uint64_t>(orig_guest, 0);
     if (std::getenv("NX_TRACE_SHADOW_MAP_LIFETIME"))
         if (auto* t = get<Texture>(guest); t && t->format == 0x32 && t->width == t->height && t->width >= 1360) {
             auto life = shadow_map_lives.find(guest);
@@ -724,16 +730,17 @@ void DescriptorPoolFinalize(CPU& c) { destroy(c.x[0]); }
 void TexturePoolRegister(CPU& c) {
     // The view may pick levels or layers (a bloom chain samples one mip of its target) and override the swizzle
     // (a font atlas in R8 is registered with alpha = R).
+    uint64_t tex_key = resolve_texture_key(c.x[2]);
     ViewInfo v = read_view(c, c.x[3]);
     if (trace_textures()) {
-        auto* tt = get<Texture>(c.x[2]);
-        log("nvn: pool %llx id %#x = texture %llx (memory %llx %ux%u) view %llx: levels %u+%u layers %u+%u swizzle %08x "
+        auto* tt = get<Texture>(tex_key);
+        log("nvn: pool %llx id %#x = texture %llx (key %llx memory %llx %ux%u) view %llx: levels %u+%u layers %u+%u swizzle %08x "
             "format %#x", (unsigned long long)c.x[0], uint32_t(c.x[1]), (unsigned long long)c.x[2],
-            (unsigned long long)(tt ? tt->memory : 0), tt ? tt->width : 0, tt ? tt->height : 0, (unsigned long long)c.x[3],
+            (unsigned long long)tex_key, (unsigned long long)(tt ? tt->memory : 0), tt ? tt->width : 0, tt ? tt->height : 0, (unsigned long long)c.x[3],
             v.base_level, v.levels, v.min_layer, v.layers, v.swizzle, v.format);
     }
     if (v.swizzle)
-        if (auto* t = get<Texture>(c.x[2])) t->pool_swizzle = v.swizzle;
+        if (auto* t = get<Texture>(tex_key)) t->pool_swizzle = v.swizzle;
     if (auto* d = get<DescriptorPool>(c.x[0])) {
         std::lock_guard lk(objects_lock());
         uint32_t id = uint32_t(c.x[1]);
@@ -743,13 +750,13 @@ void TexturePoolRegister(CPU& c) {
         if (auto it = d->views.find(id); it != d->views.end()) before.has_view = true, before.view = it->second;
         note_pool_change(c.x[0], id, before);
         uint64_t old = before.texture;
-        d->textures[id] = c.x[2];
+        d->textures[id] = tex_key;
         if (auto s = d->snapshots.find(uint32_t(c.x[1])); s != d->snapshots.end()) drop_snapshot(s->second);
-        if (uint64_t snap = make_snapshot(c.x[2])) d->snapshots[uint32_t(c.x[1])] = snap;
-        auto& slots = g_registered[c.x[2]];  // re-registered every frame: keep each slot once
+        if (uint64_t snap = make_snapshot(tex_key)) d->snapshots[uint32_t(c.x[1])] = snap;
+        auto& slots = g_registered[tex_key];  // re-registered every frame: keep each slot once
         std::pair<uint64_t, uint32_t> slot{c.x[0], uint32_t(c.x[1])};
         if (std::find(slots.begin(), slots.end(), slot) == slots.end()) slots.push_back(slot);
-        if (old && old != c.x[2]) release_kept(old);
+        if (old && old != tex_key) release_kept(old);
         // A view setting only a base level, first layer or format counts too (it was dropped: level 0 sampled).
         if (v.base_level || v.levels || v.min_layer || v.layers || v.swizzle || v.format)
             d->views[uint32_t(c.x[1])] = v;

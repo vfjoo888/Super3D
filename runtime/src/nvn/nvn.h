@@ -195,6 +195,21 @@ void pool_unregister(MemoryPool* pool);
 
 // ---- textures and windows ---------------------------------------------------------------------------------------
 
+// SM3DW (and agl) often initializes an NVNtexture on the stack and memcpy's the 0xc0-byte POD struct into heap storage
+// (or reuses the same stack address for multiple textures). Stamping a magic + unique token into the guest NVNtexture
+// lets every copy resolve to its own Texture object even after the stack temporary is overwritten.
+constexpr uint64_t kTexTokenMagic = 0x4E564E5445585431ull;  // "NVNTEXT1"
+constexpr uint64_t kTexTokenBase  = 0xD000000000000000ull;
+
+inline uint64_t resolve_texture_key(uint64_t guest) {
+    if (guest >= kModuleBase && guest < kKernelBase + kKernelSize && (guest & 7) == 0 &&
+        ld<uint64_t>(guest) == kTexTokenMagic) {
+        uint64_t tok = ld<uint64_t>(guest + 8);
+        if ((tok & 0xF000000000000000ull) == kTexTokenBase) return tok;
+    }
+    return guest;
+}
+
 struct GpuImage;  // the Vulkan side of a texture (nvn_vk.cpp)
 
 struct Texture : Object {

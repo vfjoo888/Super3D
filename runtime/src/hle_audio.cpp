@@ -561,9 +561,20 @@ void OpenAudioRenderer(CPU& c) {
     // the renderer is switched to manual/CPU; otherwise every call failed with 0x40299 and nothing was ever rendered
     // (streamed music never advanced, and the opening cutscene waited for it forever).
     uint64_t system = impl + 0x60;
-    log("audio: execution mode %u, rendering device %u -> 1, 1", ld<uint32_t>(system + 0x2d0), ld<uint32_t>(system + 0x2d4));
-    st<uint32_t>(system + 0x2d0, 1);
-    st<uint32_t>(system + 0x2d4, 1);
+    // Detect exact offsets from AudioRenderSystem::GetExecutionMode / GetRenderingDevice (SDK 10/11: 0x2b8/0x2bc, SDK 16: 0x2d0/0x2d4).
+    uint32_t exec_off = 0x2d0, dev_off = 0x2d4;
+    if (uint64_t fn = find_symbol("_ZNK2nn5audio6server17AudioRenderSystem16GetExecutionModeEv")) {
+        uint32_t insn = ld<uint32_t>(fn);
+        if ((insn & 0xffc003ffu) == 0xb9400000u) exec_off = ((insn >> 10) & 0xfffu) * 4;
+    }
+    if (uint64_t fn = find_symbol("_ZNK2nn5audio6server17AudioRenderSystem18GetRenderingDeviceEv")) {
+        uint32_t insn = ld<uint32_t>(fn);
+        if ((insn & 0xffc003ffu) == 0xb9400000u) dev_off = ((insn >> 10) & 0xfffu) * 4;
+    }
+    log("audio: execution mode (+%#x) %u, rendering device (+%#x) %u -> 1, 1",
+        exec_off, ld<uint32_t>(system + exec_off), dev_off, ld<uint32_t>(system + dev_off));
+    st<uint32_t>(system + exec_off, 1);
+    st<uint32_t>(system + dev_off, 1);
     {
         std::lock_guard lk(g_renderers_lock);
         g_renderers.push_back(impl);

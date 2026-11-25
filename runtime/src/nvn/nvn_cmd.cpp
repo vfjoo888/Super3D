@@ -306,10 +306,10 @@ void SetRenderTargets(CPU& c) {
     uint32_t n = std::min<uint32_t>(uint32_t(c.x[1]), 8);
     cmd.n = n;
     for (uint32_t k = 0; k < n && c.x[2]; k++) {
-        cmd.a[k] = ld<uint64_t>(c.x[2] + 8 * k);
+        cmd.a[k] = resolve_texture_key(ld<uint64_t>(c.x[2] + 8 * k));
         if (Texture* texture = get<Texture>(cmd.a[k])) texture->render_target.store(true, std::memory_order_relaxed);
     }
-    cmd.a[8] = c.x[4];  // depth/stencil
+    cmd.a[8] = resolve_texture_key(c.x[4]);  // depth/stencil
     if (Texture* texture = get<Texture>(cmd.a[8])) texture->render_target.store(true, std::memory_order_relaxed);
     // The views pick the level and layer rendered to (a bloom chain renders each mip of one texture in turn).
     TargetViews tv;

@@ -56,6 +56,13 @@ void note_replaced(uint64_t guest) {
 
 Object* find_object(uint64_t guest, uint64_t mark) {
     auto it = objects().find(guest);
+    if (it == objects().end()) {
+        uint64_t tok = resolve_texture_key(guest);
+        if (tok != guest) {
+            guest = tok;
+            it = objects().find(guest);
+        }
+    }
     Object* current = it == objects().end() ? nullptr : it->second.get();
     if (!mark || g_retired.empty()) return current;
     auto h = g_retired.find(guest);
