@@ -1,0 +1,399 @@
+// nn::hid at the API level: player 1's Npad state comes from the platform (XInput + keyboard on Windows, game
+// controllers + touch on Android). Vibration: two devices per controller (left and right motor), their values handed to
+// the platform's rumble (plat::rumble; NX_RUMBLE=0: none, as before). The six-axis sensor reports no samples.
+#include <array>
+#include <atomic>
+#include <deque>
+#include <algorithm>
+#include <cstring>
+#include <cstdlib>
+#include <mutex>
+#include <set>
+#include <string>
+#include <vector>
+
+#include <nx/runtime.h>
+
+#include "ipc.h"
+#include "platform.h"
+#include "play.h"
+
+namespace nx {
+
+namespace {
+
+using namespace plat;
+
+constexpr uint32_t kStyleFullKey = 1u << 0;
+uint64_t g_sampling = 0;
+std::atomic<uint64_t> g_last_buttons{0};  // hid_buttons()
+
+// Scripted input for automated runs: NX_INPUT="3300:A,3900:A,4200:Down" holds the button for 8 frames from the
+// given presented frame.
+struct Scripted {
+    uint64_t frame;
+    uint64_t buttons;
+};
+
+std::vector<Scripted> input_script() {
+    std::vector<Scripted> v;
+    const char* e = std::getenv("NX_INPUT");
+    if (!e) return v;
+    std::string s = e;
+    size_t pos = 0;
+    while (pos < s.size()) {
+        size_t comma = s.find(',', pos);
+        std::string item = s.substr(pos, comma == std::string::npos ? std::string::npos : comma - pos);
+        size_t colon = item.find(':');
+        if (colon != std::string::npos) {
+            std::string b = item.substr(colon + 1);
+            uint64_t bits = b == "A" ? kA : b == "B" ? kB : b == "X" ? kX : b == "Y" ? kY : b == "Plus" ? kPlus :
+                            b == "Minus" ? kMinus : b == "Up" ? kUp : b == "Down" ? kDown : b == "Left" ? kLeft :
+                            b == "Right" ? kRight : b == "L" ? kL : b == "R" ? kR : 0;
+            v.push_back({std::strtoull(item.c_str(), nullptr, 10), bits});
+        }
+        if (comma == std::string::npos) break;
+        pos = comma + 1;
+    }
+    return v;
+}
+
+PadState read(unsigned player = 0) {
+    PadState p;
+    static const std::vector<Scripted> script = input_script();
+    if (player == 0) {
+        for (const auto& s : script)
+            if (g_frame >= s.frame && g_frame < s.frame + 8) p.buttons |= s.buttons;
+        read_pad(p);
+        play::pad(p);
+    }
+#if (defined(__linux__) && !defined(__ANDROID__)) || defined(_WIN32)
+    else read_pad_player(player, p);
+#endif  // NX_INPUT_FRAMES / NX_INPUT_REPLAY / NX_INPUT_RECORD (play.cpp)
+    // Stick directions as buttons, like the hid sysmodule reports them.
+    constexpr int32_t t = kStickMax / 2;
+    if (p.lx < -t) p.buttons |= kStickLLeft;
+    if (p.lx > t) p.buttons |= kStickLRight;
+    if (p.ly > t) p.buttons |= kStickLUp;
+    if (p.ly < -t) p.buttons |= kStickLDown;
+    if (p.rx < -t) p.buttons |= kStickRLeft;
+    if (p.rx > t) p.buttons |= kStickRRight;
+    if (p.ry > t) p.buttons |= kStickRUp;
+    if (p.ry < -t) p.buttons |= kStickRDown;
+    if (player == 0) g_last_buttons.store(p.buttons, std::memory_order_relaxed);
+    return p;
+}
+
+// NpadFullKeyState / NpadJoyDualState / NpadHandheldState:
+// {s64 sampling; u64 buttons; {s32 x, y} left; {s32 x, y} right; u32 attributes; pad}
+void GetNpadState(CPU& c) {
+    uint64_t out = c.x[0];
+    uint32_t id = ld<uint32_t>(c.x[1]);
+    std::memset(reinterpret_cast<void*>(out), 0, 0x28);
+    st<int64_t>(out, int64_t(++g_sampling));
+    {
+        static std::set<std::pair<uint32_t, std::string>> seen;
+        static std::mutex m;
+        std::lock_guard lk(m);
+        if (seen.insert({id, hle_current_name()}).second) log("hid: reads id %#x via %s", id, hle_current_name());
+    }
+#if (defined(__linux__) && !defined(__ANDROID__)) || defined(_WIN32)
+    if (id >= 4 || !player_connected(id)) return;
+#else
+    if (id != 0) return;
+#endif
+    PadState p = read(id);
+    static bool pressed = false;
+    if (p.buttons && !pressed) log("hid: first buttons %llx", (unsigned long long)p.buttons), pressed = true;
+    st<uint64_t>(out + 8, p.buttons);
+    st<int32_t>(out + 16, p.lx);
+    st<int32_t>(out + 20, p.ly);
+    st<int32_t>(out + 24, p.rx);
+    st<int32_t>(out + 28, p.ry);
+    st<uint32_t>(out + 32, 1);  // IsConnected
+}
+
+// GetNpadStates(State* out, int count, const u32& id) -> number written: the newest first. One sample: the current
+// one for player 1's full-key style, a not-connected one otherwise.
+// GetNpadStates(State* out, int count, const u32& id) -> number written, newest first. Like the real hid, a history:
+// Wonder ignores the return value and reads all 16 entries it asks for, telling new samples by their sampling
+// numbers, so every call adds a sample and returns up to 16 of the latest (older entries stay as they were).
+void GetNpadStatesFullKey(CPU& c) {
+    {
+        static std::atomic<uint64_t> calls{0};
+        uint64_t n = ++calls;
+        if (n % 3000 == 0) log("hid: %llu full-key reads (lr %s)", (unsigned long long)n, describe(c.x[30]).c_str());
+    }
+    uint64_t out = c.x[0], id_ref = c.x[2];
+    int n = int(c.x[1]);
+    if (n < 1) {
+        c.x[0] = 0;
+        return;
+    }
+    static std::mutex m;
+    static std::array<std::deque<std::array<uint8_t, 0x28>>, 4> histories;
+    std::lock_guard lk(m);
+    c.x[0] = out;
+    c.x[1] = id_ref;
+    GetNpadState(c);  // the new sample, into out[0]
+    const uint32_t id = ld<uint32_t>(id_ref);
+    if (id >= histories.size()) { c.x[0] = 1; return; }
+#if (!defined(__linux__) || defined(__ANDROID__)) && !defined(_WIN32)
+    if (id != 0) { c.x[0] = 1; return; }
+#endif
+    auto& history = histories[id];
+    if (!ld<uint32_t>(out + 32)) history.clear();
+    std::array<uint8_t, 0x28> now;
+    std::memcpy(now.data(), reinterpret_cast<const void*>(out), now.size());
+    history.push_front(now);
+    if (history.size() > 16) history.pop_back();
+    int count = std::min<int>(n, int(history.size()));
+    for (int k = 1; k < count; k++) std::memcpy(reinterpret_cast<void*>(out + 0x28ull * k), history[k].data(), 0x28);
+    c.x[0] = uint64_t(count);
+}
+
+void GetNpadStatesOther(CPU& c) {
+    {
+        static std::set<std::pair<uint32_t, std::string>> seen;
+        static std::mutex m;
+        std::lock_guard lk(m);
+        uint32_t id = ld<uint32_t>(c.x[2]);
+        if (seen.insert({id, hle_current_name()}).second) log("hid: reads id %#x via %s (not connected)", id, hle_current_name());
+    }
+    if (int(c.x[1]) < 1) {
+        c.x[0] = 0;
+        return;
+    }
+    std::memset(reinterpret_cast<void*>(c.x[0]), 0, 0x28);
+    st<int64_t>(c.x[0], int64_t(g_sampling));
+    c.x[0] = 1;
+}
+
+// MouseState {s64 sampling; s32 x, y, dx, dy, wheel dx, wheel dy; u32 buttons; u32 attributes}: no mouse.
+void GetMouseStates(CPU& c) {
+    if (int(c.x[1]) < 1) {
+        c.x[0] = 0;
+        return;
+    }
+    std::memset(reinterpret_cast<void*>(c.x[0]), 0, 0x28);
+    st<int64_t>(c.x[0], int64_t(g_sampling));
+    c.x[0] = 1;
+}
+
+// KeyboardState {s64 sampling; u64 modifiers; u8 keys[32]}: nothing pressed (the keyboard drives the pad).
+void GetKeyboardState(CPU& c) {
+    std::memset(reinterpret_cast<void*>(c.x[0]), 0, 0x30);
+    st<int64_t>(c.x[0], int64_t(g_sampling));
+}
+
+void zero(CPU& c) { c.x[0] = 0; }
+void one(CPU& c) { c.x[0] = 1; }
+
+void GetNpadStyleSet(CPU& c) {
+    static int logged = 0;
+    if (logged++ < 4) log("hid: GetNpadStyleSet id %#x", ld<uint32_t>(c.x[0]));
+#if (defined(__linux__) && !defined(__ANDROID__)) || defined(_WIN32)
+    c.x[0] = player_connected(ld<uint32_t>(c.x[0])) ? kStyleFullKey : 0;
+#else
+    c.x[0] = ld<uint32_t>(c.x[0]) == 0 ? kStyleFullKey : 0;
+#endif
+}
+
+void BindNpadStyleSetUpdateEvent(CPU& c) {  // (const u32& id, SystemEventType*, EventClearMode)
+    uint64_t create = find_symbol("_ZN2nn2os17CreateSystemEventEPNS0_15SystemEventTypeENS0_14EventClearModeEb");
+    uint64_t ev = c.x[1], mode = c.x[2];
+    uint32_t id = ld<uint32_t>(c.x[0]);
+    c.x[0] = ev;
+    c.x[1] = mode;
+    c.x[2] = 0;
+    call(c, create);
+    // Player 1's controller is there from the start: the style set "changed" (connected) once, and games wait for
+    // this event before they look at the npad.
+    static uint64_t signal = find_symbol("_ZN2nn2os17SignalSystemEventEPNS0_15SystemEventTypeE");
+    if (signal) {
+        c.x[0] = ev;
+        call(c, signal);
+    }
+    log("hid: style set event bound for id %#x, signalled", id);
+}
+
+// ---- vibration -------------------------------------------------------------------------------------------------
+// nn::hid::VibrationDeviceHandle (4 bytes): device type, npad id, device index (0 left, 1 right). The SDK's
+// VibrationPlayer / VibrationTarget end in SendVibrationValue with a VibrationValue: amplitude and frequency of the
+// low band and the high band (HD rumble). A controller's two motors take the stronger side's low band (the heavy,
+// low-frequency motor) and high band (the light one).
+constexpr uint32_t kVibrationType = 3;
+
+bool rumble_on() {
+    static const bool on = [] {
+        const char* e = std::getenv("NX_RUMBLE");
+        return !(e && e[0] == '0');
+    }();
+    return on;
+}
+
+std::mutex g_vibration_lock;
+float g_band[4][2][2] = {};  // [side][low, high] amplitude
+float g_freq[4][2][2] = {};  // [side][low, high] frequency (Hz)
+float g_last_rumble[4][2] = {};
+uint64_t g_vibration_sends = 0, g_vibration_nonzero = 0;
+
+void GetVibrationDeviceHandles(CPU& c) {  // (VibrationDeviceHandle* out, int count, const NpadIdType&, NpadStyleSet)
+    if (!rumble_on()) {
+        c.x[0] = 0;
+        return;
+    }
+    uint64_t out = c.x[0];
+    int count = int(c.x[1]);
+    uint32_t id = ld<uint32_t>(c.x[2]);
+    int n = std::clamp(count, 0, 2);
+    for (int k = 0; k < n; k++) st<uint32_t>(out + 4 * uint64_t(k), kVibrationType | (id & 0xFF) << 8 | uint32_t(k) << 16);
+    static bool logged = false;
+    if (!logged) logged = true, log("hid: %d vibration devices for npad %u", n, id);
+    c.x[0] = uint64_t(n);
+}
+
+void GetVibrationDeviceInfo(CPU& c) {  // (VibrationDeviceInfo* out, const VibrationDeviceHandle&)
+    uint32_t h = ld<uint32_t>(c.x[1]);
+    st<uint32_t>(c.x[0], 1);                              // a linear resonant actuator
+    st<uint32_t>(c.x[0] + 4, (h >> 16 & 0xFF) ? 2u : 1u);  // right / left
+    c.x[0] = 0;
+}
+
+// One VibrationValue for a device (from SendVibrationValue, or hid's SendVibrationValues below).
+void vibrate(uint32_t h, uint64_t value) {
+    if (!rumble_on()) return;
+    const unsigned player = (h >> 8) & 0xFF;
+    if ((h & 0xFF) != kVibrationType || player >= 4) return;
+#if (!defined(__linux__) || defined(__ANDROID__)) && !defined(_WIN32)
+    if (player != 0) return;
+#endif
+    int side = (h >> 16 & 0xFF) ? 1 : 0;
+    // VibrationValue: {f32 amplitude low, f32 frequency low, f32 amplitude high, f32 frequency high}
+    float amp_low = ld<float>(value), amp_high = ld<float>(value + 8);
+    float low = 0, high = 0;
+    bool skip = false;
+    [[maybe_unused]] float hd[2][4] = {};  // per side {amp low, freq low, amp high, freq high}
+    {
+        std::lock_guard lk(g_vibration_lock);
+        g_band[player][side][0] = std::clamp(amp_low, 0.0f, 1.0f);
+        g_band[player][side][1] = std::clamp(amp_high, 0.0f, 1.0f);
+        g_freq[player][side][0] = ld<float>(value + 4);
+        g_freq[player][side][1] = ld<float>(value + 12);
+        for (int k = 0; k < 2; k++)
+            hd[k][0] = g_band[player][k][0], hd[k][1] = g_freq[player][k][0], hd[k][2] = g_band[player][k][1],
+            hd[k][3] = g_freq[player][k][1];
+        low = std::max(g_band[player][0][0], g_band[player][1][0]);
+        high = std::max(g_band[player][0][1], g_band[player][1][1]);
+        g_vibration_sends++;
+        if (amp_low > 0 || amp_high > 0) g_vibration_nonzero++;
+        if (g_vibration_sends % 2000 == 1)
+            log("hid: vibration values: %llu sent, %llu not zero", (unsigned long long)g_vibration_sends,
+                (unsigned long long)g_vibration_nonzero);
+        skip = low == 0.0f && high == 0.0f && g_last_rumble[player][0] == 0.0f && g_last_rumble[player][1] == 0.0f;
+        g_last_rumble[player][0] = low;
+        g_last_rumble[player][1] = high;
+    }
+    if (skip) return;
+#if (defined(__linux__) && !defined(__ANDROID__)) || defined(_WIN32)
+    plat::rumble_player(player, low, high);
+    plat::rumble_player_hd(player, hd[0], hd[1]);  // Switch 2 controllers: the values as they are (HD rumble)
+#else
+    plat::rumble(low, high);
+#endif
+}
+
+void SendVibrationValue(CPU& c) {  // (const VibrationDeviceHandle&, const VibrationValue&)
+    vibrate(ld<uint32_t>(c.x[0]), c.x[1]);
+}
+
+// The hid service itself, for what the SDK sends over IPC rather than through the HLE'd functions: cmd 206
+// SendVibrationValues (AppletResourceUserId; X buffers: VibrationDeviceHandle[], VibrationValue[]), ~200 per second
+// while the game plays. Every other command answers as the generic stub did (success, no output).
+ServiceRegistrar r_hid("hid", [] {
+    auto s = std::make_shared<Service>("hid");
+    s->cmds[206] = [](IpcCtx& c) {
+        Buffer handles = c.in_buf(0), values = c.in_buf(1);
+        uint64_t n = std::min(handles.size / 4, values.size / 16);
+        for (uint64_t k = 0; k < n; k++) vibrate(ld<uint32_t>(handles.addr + 4 * k), values.addr + 16 * k);
+        return 0u;
+    };
+    return s;
+});
+void ShowControllerSupport(CPU& c) {                     // (ControllerSupportResultInfo*, const Arg&)
+    int count = 1;
+#if (defined(__linux__) && !defined(__ANDROID__)) || defined(_WIN32)
+    const int max_players = c.x[1] ? std::clamp<int>(ld<int8_t>(c.x[1] + 1), 1, 4) : 4;
+    while (count < max_players && player_connected(unsigned(count))) ++count;
+#endif
+    log("hid: controller support selects %d players", count);
+    st<int8_t>(c.x[0], int8_t(count));
+    st<uint32_t>(c.x[0] + 4, 0);  // selected npad id: No1
+    c.x[0] = 0;
+}
+void GetTouchScreenState(CPU& c) {  // (TouchScreenState<N>* out)
+    static std::atomic<int64_t> sample{1};
+    if (c.x[0]) {
+        st<int64_t>(c.x[0], sample.fetch_add(1, std::memory_order_relaxed));
+        st<int32_t>(c.x[0] + 8, 0);  // count = 0 touches
+    }
+    c.x[0] = 0;
+}
+void GetTouchScreenStates(CPU& c) {  // (TouchScreenState<N>* out, int count) -> int
+    if (c.x[0] && int(c.x[1]) > 0) {
+        GetTouchScreenState(c);
+        c.x[0] = 1;
+        return;
+    }
+    c.x[0] = 0;
+}
+void noop(CPU& c) { c.x[0] = 0; }
+
+}  // namespace
+
+uint64_t hid_buttons() { return g_last_buttons.load(std::memory_order_relaxed); }
+
+NX_HLE("_ZN2nn3hid14InitializeNpadEv", noop);
+NX_HLE("_ZN2nn3hid24SetSupportedNpadStyleSetENS_4util10BitFlagSetILi32ENS0_12NpadStyleTagEEE", noop);
+NX_HLE("_ZN2nn3hid18SetNpadJoyHoldTypeENS0_15NpadJoyHoldTypeE", noop);
+NX_HLE("_ZN2nn3hid22SetSupportedNpadIdTypeEPKjm", noop);
+NX_HLE("_ZN2nn3hid27BindNpadStyleSetUpdateEventERKjPNS_2os15SystemEventTypeENS3_14EventClearModeE", BindNpadStyleSetUpdateEvent);
+NX_HLE("_ZN2nn3hid15GetNpadStyleSetERKj", GetNpadStyleSet);
+NX_HLE("_ZN2nn3hid12GetNpadStateEPNS0_16NpadFullKeyStateERKj", GetNpadState);
+NX_HLE("_ZN2nn3hid12GetNpadStateEPNS0_16NpadJoyDualStateERKj", GetNpadState);
+NX_HLE("_ZN2nn3hid12GetNpadStateEPNS0_17NpadHandheldStateERKj", GetNpadState);
+NX_HLE("_ZN2nn3hid25GetVibrationDeviceHandlesEPNS0_21VibrationDeviceHandleEiRKjNS_4util10BitFlagSetILi32ENS0_12NpadStyleTagEEE", GetVibrationDeviceHandles);
+NX_HLE("_ZN2nn3hid25InitializeVibrationDeviceERKNS0_21VibrationDeviceHandleE", noop);
+NX_HLE("_ZN2nn3hid22GetVibrationDeviceInfoEPNS0_19VibrationDeviceInfoERKNS0_21VibrationDeviceHandleE", GetVibrationDeviceInfo);
+NX_HLE("_ZN2nn3hid21ShowControllerSupportEPNS0_27ControllerSupportResultInfoERKNS0_20ControllerSupportArgE", ShowControllerSupport);
+// SDK 16 (Super Mario Bros. Wonder)
+NX_HLE("_ZN2nn3hid13GetNpadStatesEPNS0_16NpadFullKeyStateEiRKj", GetNpadStatesFullKey);
+NX_HLE("_ZN2nn3hid13GetNpadStatesEPNS0_16NpadJoyDualStateEiRKj", GetNpadStatesOther);
+NX_HLE("_ZN2nn3hid13GetNpadStatesEPNS0_16NpadJoyLeftStateEiRKj", GetNpadStatesOther);
+NX_HLE("_ZN2nn3hid13GetNpadStatesEPNS0_17NpadHandheldStateEiRKj", GetNpadStatesOther);
+NX_HLE("_ZN2nn3hid13GetNpadStatesEPNS0_17NpadJoyRightStateEiRKj", GetNpadStatesOther);
+NX_HLE("_ZN2nn3hid15InitializeMouseEv", noop);
+NX_HLE("_ZN2nn3hid14GetMouseStatesEPNS0_10MouseStateEi", GetMouseStates);
+NX_HLE("_ZN2nn3hid18InitializeKeyboardEv", noop);
+NX_HLE("_ZN2nn3hid16GetKeyboardStateEPNS0_13KeyboardStateE", GetKeyboardState);
+NX_HLE("_ZN2nn3hid14DisconnectNpadERKj", noop);
+NX_HLE("_ZN2nn3hid18SwapNpadAssignmentERKjS2_", noop);
+NX_HLE("_ZN2nn3hid30SetNpadJoyAssignmentModeSingleERKj", noop);
+NX_HLE("_ZN2nn3hid21StartLrAssignmentModeEv", noop);
+NX_HLE("_ZN2nn3hid20StopLrAssignmentModeEv", noop);
+NX_HLE("_ZN2nn3hid20GetNpadJoyAssignmentERKj", zero);  // dual
+NX_HLE("_ZN2nn3hid20IsVibrationPermittedEv", one);
+NX_HLE("_ZN2nn3hid18SendVibrationValueERKNS0_21VibrationDeviceHandleERKNS0_14VibrationValueE", SendVibrationValue);
+NX_HLE("_ZN2nn3hid23GetSixAxisSensorHandlesEPNS0_19SixAxisSensorHandleEiRKjNS_4util10BitFlagSetILi32ENS0_12NpadStyleTagEEE", noop);
+NX_HLE("_ZN2nn3hid18StartSixAxisSensorERKNS0_19SixAxisSensorHandleE", noop);
+NX_HLE("_ZN2nn3hid22GetSixAxisSensorStatesEPNS0_18SixAxisSensorStateEiRKNS0_19SixAxisSensorHandleE", zero);
+NX_HLE("_ZN2nn3hid21InitializeTouchScreenEv", noop);
+NX_HLE("_ZN2nn3hid6detail21InitializeTouchScreenEv", noop);
+NX_HLE("_ZN2nn3hid19GetTouchScreenStateILm1EEEvPNS0_16TouchScreenStateIXT_EEE", GetTouchScreenState);
+NX_HLE("_ZN2nn3hid19GetTouchScreenStateILm16EEEvPNS0_16TouchScreenStateIXT_EEE", GetTouchScreenState);
+NX_HLE("_ZN2nn3hid20GetTouchScreenStatesILm1EEEiPNS0_16TouchScreenStateIXT_EEEi", GetTouchScreenStates);
+NX_HLE("_ZN2nn3hid20GetTouchScreenStatesILm16EEEiPNS0_16TouchScreenStateIXT_EEEi", GetTouchScreenStates);
+NX_HLE("_ZN2nn3hid19GetTouchScreenStateEPNS0_16TouchScreenStateILi16EEE", GetTouchScreenState);
+NX_HLE("_ZN2nn3hid20GetTouchScreenStatesEPNS0_16TouchScreenStateILi16EEEi", GetTouchScreenStates);
+
+}  // namespace nx

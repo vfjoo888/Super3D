@@ -1,0 +1,498 @@
+// The VkImage behind an NVN texture, and its layout transitions (split from nvn_vk.cpp). Under the GPU lock.
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstdlib>
+#include <map>
+#include <memory>
+#include <set>
+#include <tuple>
+
+#include "nvn_vk.h"
+#include "nvn_ultrawide.h"
+#include "../svc_am.h"
+
+namespace nx::nvn {
+
+using namespace nx::vk;
+
+namespace {
+
+uint64_t simulated_image_memory_budget() {
+    static const uint64_t bytes = [] {
+        const char* value = std::getenv("NX_VRAM_IMAGE_BUDGET_GB");
+        if (!value || !*value) return uint64_t(0);
+        const double gb = std::strtod(value, nullptr);
+        if (!(gb > 0.0) || gb > 1024.0) return uint64_t(0);
+        return uint64_t(gb * double(1ull << 30));
+    }();
+    return bytes;
+}
+
+std::atomic<int> g_shadow_scale{1};
+
+int shadow_scale_multiplier() {
+    if (const char* e = std::getenv("NX_SHADOW_SCALE"); e && *e) {
+        int v = std::atoi(e);
+        if (v == 1 || v == 2 || v == 4) return v;
+    }
+    int v = g_shadow_scale.load(std::memory_order_relaxed);
+    return (v == 2 || v == 4) ? v : 1;
+}
+
+float render_scale_for(const Texture& texture) {
+    const uint32_t target_width = internal_resolution_target_width();
+    const bool render_target = (texture.flags & 0x8) || texture.render_target.load(std::memory_order_relaxed);
+    const bool eligible = render_target && texture.levels <= 1 && texture.target == 1 && texture.width >= 16 &&
+                          texture.height >= 9;
+    // Wonder's D24 shadow maps (NVN format 0x32) are square and track the guest's dynamic scene size
+    // at about 16/15 of its width. Keep their host images and depth-only viewports at the same scale
+    // as the scene (times any user shadow map multiplier); leaving them at 1.0 while scaling 16:9 targets misaligns shadows.
+    const bool shadow_depth = eligible && (texture.flags & 0x8) && texture.format == 0x32 &&
+                              texture.width == texture.height && texture.width >= 1360;
+    const float shadow_mult = float(shadow_scale_multiplier());
+    if (!target_width) return shadow_depth ? shadow_mult : 1.0f;  // Original / dynamic
+    static float scene_scale = 0.0f;  // the last full-size game target determines scale for its smaller post passes
+    if (scene_scale == 0.0f) scene_scale = float(target_width) / 1920.0f;
+    const uint64_t ratio_width = uint64_t(texture.width) * 9, ratio_height = uint64_t(texture.height) * 16;
+    const bool wide = ratio_width + 16 >= ratio_height && ratio_width <= ratio_height + 16;
+    if (eligible && wide && (texture.flags & 0x8) && texture.width >= 1360) {
+        scene_scale = float(target_width) / float(texture.width);
+        return scene_scale;
+    }
+    if (shadow_depth) return scene_scale * shadow_mult;
+    if (eligible && wide) return scene_scale;
+    return 1.0f;
+}
+
+bool check(VkResult r, const char* what) {  // as nvn_vk.cpp's
+    if (r >= 0) return true;
+    log("nvn/vk: %s failed (%d)", what, int(r));
+    if (r == VK_ERROR_DEVICE_LOST) gpu_hung(what);
+    return false;
+}
+
+// Whether the device can make this image. An unsupported format or usage is undefined behaviour in vkCreateImage:
+// NVIDIA's driver divided by zero on one (WINDOWS-PLAN.md). Usages the device refuses (storage, attachment) are
+// dropped first; a format it cannot make at all is logged once and the texture gets no image (the dummy).
+bool image_supported(VkImageCreateInfo& ci, uint32_t nvn_format) {
+    auto ok = [&] {
+        VkImageFormatProperties p{};
+        return p_vkGetPhysicalDeviceImageFormatProperties(vk_physical(), ci.format, ci.imageType, ci.tiling, ci.usage,
+                                                          ci.flags, &p) == VK_SUCCESS &&
+               ci.mipLevels <= p.maxMipLevels && ci.arrayLayers <= p.maxArrayLayers &&
+               ci.extent.width <= p.maxExtent.width && ci.extent.height <= p.maxExtent.height &&
+               ci.extent.depth <= p.maxExtent.depth;
+    };
+    if (ok()) return true;
+    static std::map<std::pair<uint32_t, uint32_t>, bool> logged;
+    const VkImageUsageFlags wanted = ci.usage;
+    for (VkImageUsageFlags drop : {VkImageUsageFlags(VK_IMAGE_USAGE_STORAGE_BIT),
+                                   VkImageUsageFlags(VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                                                     VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)}) {
+        ci.usage = wanted & ~drop;
+        if (ok()) {
+            if (!logged[{nvn_format, ci.usage}]) {
+                logged[{nvn_format, ci.usage}] = true;
+                log("nvn/vk: format %#x (Vulkan %d): usage %#x not supported, made with %#x", nvn_format,
+                    int(ci.format), wanted, ci.usage);
+            }
+            return true;
+        }
+    }
+    ci.usage = wanted;
+    if (!logged[{nvn_format, 0}]) {
+        logged[{nvn_format, 0}] = true;
+        log("nvn/vk: format %#x (Vulkan %d) %ux%ux%u, %u levels, %u layers, type %d, flags %#x: not supported by this "
+            "GPU, texture left without an image",
+            nvn_format, int(ci.format), ci.extent.width, ci.extent.height, ci.extent.depth, ci.mipLevels,
+            ci.arrayLayers, int(ci.imageType), ci.flags);
+    }
+    return false;
+}
+
+}  // namespace
+
+// The VkImage behind an NVN texture, made on first use. NVN texture targets (GL order): 0 1D, 1 2D, 2 3D, 3 1D array,
+// 4 2D array, 5 2D multisample, 6 2D multisample array, 7 rectangle, 8 cube map, 9 cube map array, 10 buffer.
+// Arrays and cube maps keep their layer count in the builder's depth.
+// Live textures over the same storage share one image: the game renders through one NVNtexture and samples the same
+// memory through another (UI capture and blur chains, agl filters). With an image per object the sampled one was a
+// stale upload of guest memory: no blur behind the menus, missing UI masks (docs/nvn/DEBUG.md #36).
+struct StorageKey {
+    uint64_t memory = 0;
+    uint32_t format = 0, width = 0, height = 0, depth = 0, levels = 0, target = 0, samples = 0, swizzle = 0;
+    bool operator<(const StorageKey& o) const {
+        return std::tie(memory, format, width, height, depth, levels, target, samples, swizzle) <
+               std::tie(o.memory, o.format, o.width, o.height, o.depth, o.levels, o.target, o.samples, o.swizzle);
+    }
+};
+std::map<StorageKey, std::weak_ptr<GpuImage>> g_live_images;
+
+GpuImage* image_of(uint64_t guest) {
+    Texture* t = get<Texture>(guest);
+    if (!t) return nullptr;
+    // NX_REFRESH_SCALED_RT=1: diagnostic experiment for the 64x36 RGBA8 screen-space shadow input.
+    // Its scene scale can change with dynamic guest resolution while the NVN texture object remains alive.
+    static const bool refresh_scaled_rt = std::getenv("NX_REFRESH_SCALED_RT") != nullptr;
+    const bool scaled_scene_rt = refresh_scaled_rt && (t->flags & 0x8) && t->levels <= 1 && t->target == 1 &&
+                                 t->format == 0x3f && t->width == 64 && t->height == 36;
+    const float target_scale = scaled_scene_rt ? render_scale_for(*t) : 0.0f;
+    if (t->image) {
+        if (!scaled_scene_rt || t->image->render_scale == target_scale) return t->image.get();
+        static unsigned refreshed = 0;
+        if (refreshed++ < 32)
+            log("nvn/vk: refresh scaled scene RT %llx pool %llx offset %llx %ux%u scale %.3f -> %.3f",
+                (unsigned long long)guest, (unsigned long long)t->pool, (unsigned long long)t->offset,
+                t->width, t->height, t->image->render_scale, target_scale);
+        t->image.reset();
+    }
+    if (t->alloc_failed) {
+        const uint64_t now_frame = g_frame.load(std::memory_order_relaxed);
+        const uint64_t now_frees = gpu_image_memory_stats().frees;
+        if (now_frees == t->alloc_retry_frees && now_frame - t->alloc_failed_frame < 120) return nullptr;
+        t->alloc_failed = false;
+    }
+    uint32_t swizzle = uint32_t(t->swizzle[0]) | uint32_t(t->swizzle[1]) << 8 | uint32_t(t->swizzle[2]) << 16 |
+                  uint32_t(t->swizzle[3]) << 24;
+    // Swizzles apply when sampling (sampled_view, #44): neither the key's nor a pool view's keeps textures from sharing.
+    // With them, the shadow map and the UI's text strips were sampled as stale uploads (#46). Env: bisecting.
+    static const bool key_swizzle = std::getenv("NX_KEY_SWIZZLE") != nullptr;
+    if (!key_swizzle) swizzle = 0;
+    const float image_scale = scaled_scene_rt ? target_scale : render_scale_for(*t);
+    // Scale is intentionally not part of this key: NVN texture aliases must keep sharing the same Vulkan image.
+    StorageKey key{t->memory, t->format, t->width, t->height, t->depth, t->levels, t->target, t->samples, swizzle};
+    static const bool share = std::getenv("NX_NO_IMAGE_SHARE") == nullptr;  // bisecting
+    // An R8 image widened for alpha-from-red keeps its own.
+    static const bool old_rule = std::getenv("NX_SHARE_NO_POOL_SWIZZLE") != nullptr;  // bisecting
+    bool widened = t->format == 0x1 && t->pool_swizzle == 0x02010101u;
+    if (share && t->memory && (old_rule ? t->pool_swizzle == 0 : !widened))
+        if (auto it = g_live_images.find(key); it != g_live_images.end())
+            if (auto shared = it->second.lock(); shared && shared->image && !shared->alpha_from_r &&
+                shared->uw == t->uw && (!scaled_scene_rt || shared->render_scale == image_scale)) {
+                static uint64_t shares = 0;
+                if (++shares % 1000 == 1) log("nvn/vk: %llu textures shared an image with another", (unsigned long long)shares);
+                shared->pool = t->pool, shared->pool_offset = t->offset, shared->pool_size = t->storage_size;
+                t->alloc_failed = false;
+                t->image = shared;
+                return shared.get();
+            }
+    if ((t->image = reuse_image(*t)); t->image && t->image->render_scale == image_scale && t->image->uw == t->uw) {
+        t->alloc_failed = false;
+        t->image->pool = t->pool, t->image->pool_offset = t->offset, t->image->pool_size = t->storage_size;
+        return t->image.get();
+    }
+    t->image.reset();
+    auto img = std::make_shared<GpuImage>();
+    img->uw = t->uw;
+    img->format = bc_host_decode(t->format) ? bc_decoded_format(t->format) : vk_format(t->format);  // nvn_bc.cpp
+    img->nvn_format = t->format;
+    // HDR output (nvn_hdr.cpp): the window's textures hold linear light above 1.0. The game's sRGB views of them are
+    // refused by view_format (RGBA16F is 8 bytes, a view is 4), so draws land in the float image without an encode.
+    if (t->window && hdr_output() && (img->format == VK_FORMAT_R8G8B8A8_SRGB || img->format == VK_FORMAT_R8G8B8A8_UNORM ||
+                                      img->format == VK_FORMAT_B8G8R8A8_SRGB || img->format == VK_FORMAT_B8G8R8A8_UNORM)) {
+        log("nvn/hdr: window texture %ux%u: format %#x made RGBA16F", t->width, t->height, t->format);
+        img->format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    }
+    img->pool = t->pool, img->pool_offset = t->offset, img->pool_size = t->storage_size;
+    if (t->format == 0x1 && t->pool_swizzle == 0x02010101u) {
+        img->format = VK_FORMAT_R8G8B8A8_UNORM;
+        img->alpha_from_r = true;
+    }
+    uint32_t aspect = format_aspect(t->format);
+    img->aspect = aspect == 0 ? VK_IMAGE_ASPECT_COLOR_BIT
+                  : aspect == 1 ? VK_IMAGE_ASPECT_DEPTH_BIT
+                  : aspect == 2 ? VK_IMAGE_ASPECT_STENCIL_BIT
+                                : VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+    bool one_d = vk_1d_images() && (t->target == 0 || t->target == 3);  // else 2D images of height 1 (G8)
+    img->logical_width = std::max(1u, t->width);
+    img->logical_height = (t->target == 0 || t->target == 3) && !one_d ? 1u : std::max(1u, t->height);
+    // Guest pool allocations and layouts stay unchanged; only this Vulkan image changes size.
+    img->render_scale = image_scale;
+    img->width = t->uw ? uw_host_width(*t, img->render_scale)
+                       : std::max(1u, uint32_t(std::lround(img->logical_width * img->render_scale)));
+    img->height = std::max(1u, uint32_t(std::lround(img->logical_height * img->render_scale)));
+    if (img->render_scale > 1.0f && vk_physical()) {
+        static const uint32_t max_dim = [] {
+            VkPhysicalDeviceProperties props{};
+            p_vkGetPhysicalDeviceProperties(vk_physical(), &props);
+            return std::max(4096u, props.limits.maxImageDimension2D);
+        }();
+        if (img->width > max_dim || img->height > max_dim) {
+            const float clamp_scale = std::min(float(max_dim) / float(img->logical_width),
+                                               float(max_dim) / float(img->logical_height));
+            img->render_scale = clamp_scale;
+            img->width = std::max(1u, uint32_t(std::lround(img->logical_width * img->render_scale)));
+            img->height = std::max(1u, uint32_t(std::lround(img->logical_height * img->render_scale)));
+        }
+    }
+    img->levels = std::max(1u, t->levels);
+    uint32_t depth = std::max(1u, t->target == 3 && !one_d && t->depth <= 1 ? t->height : t->depth);  // GL-style layers
+    bool is3d = t->target == 2, cube = t->target == 8 || t->target == 9;
+    bool array = t->target == 3 || t->target == 4 || t->target == 6 || t->target == 9;
+    img->layers = is3d ? 1 : (array || cube) ? depth : 1;
+    img->depth = is3d ? depth : 1;
+    if (cube && img->layers < 6) img->layers = 6;
+    // NVN takes more levels than the size allows (a 1x1 texture with 5), Metal aborts on it (DEBUG.md #27).
+    uint32_t largest = std::max({img->width, img->height, img->depth}), fit = 1;
+    while (largest >>= 1) fit++;
+    img->levels = std::min(img->levels, fit);
+    img->view_type = is3d             ? VK_IMAGE_VIEW_TYPE_3D
+                     : t->target == 9 ? VK_IMAGE_VIEW_TYPE_CUBE_ARRAY
+                     : cube           ? VK_IMAGE_VIEW_TYPE_CUBE
+                     : one_d          ? (t->target == 0 ? VK_IMAGE_VIEW_TYPE_1D : VK_IMAGE_VIEW_TYPE_1D_ARRAY)
+                     : array          ? VK_IMAGE_VIEW_TYPE_2D_ARRAY  // 1D array (G8), 2D array, 2D MS array
+                                      : VK_IMAGE_VIEW_TYPE_2D;
+    if (img->format == VK_FORMAT_UNDEFINED) {
+        log("nvn/vk: texture %llx has format %#x with no Vulkan equivalent", (unsigned long long)guest, t->format);
+        img->format = VK_FORMAT_R8G8B8A8_UNORM;
+        img->aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+        aspect = 0;
+    }
+    bool compressed = false;
+    {
+        uint32_t bw = 1, bh = 1, bytes = 4;
+        format_block(t->format, bw, bh, bytes);
+        compressed = bw > 1 || bh > 1;
+    }
+    VkImageCreateInfo ci{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    // 3D textures are rendered one slice at a time (a colour-grading LUT): 2D views of a slice need this flag
+    // (Metal otherwise refuses a 2D view of a 3D texture).
+    ci.flags = cube ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : is3d ? VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT : 0;
+    // Colour images may be viewed in another format of the same size (an sRGB view of RGBA8, docs/nvn/DEBUG.md #29).
+    // With ubwc_flags (Android): only where a view can differ, and with the list of those formats, as Adreno keeps
+    // its framebuffer compression (UBWC) on an image whose views are listed; MUTABLE_FORMAT alone turns it off
+    // (docs/nvn/android-perf/PHASE4.md G1a). In every run the only reinterpretation was RGBA8 viewed as sRGB.
+    VkFormat listed[2] = {};
+    VkImageFormatListCreateInfo list{VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO};
+    img->mutable_format = aspect == 0 && !img->alpha_from_r;
+    if (img->mutable_format && ubwc_flags()) {
+        auto pair = [&](VkFormat a, VkFormat b) {
+            if (img->format != a && img->format != b) return false;
+            listed[0] = a, listed[1] = b;
+            return true;
+        };
+        if (pair(VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_R8G8B8A8_SRGB) ||
+            pair(VK_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_B8G8R8A8_SRGB)) {
+            list.viewFormatCount = 2, list.pViewFormats = listed;
+            ci.pNext = &list;
+        } else {
+            img->mutable_format = compressed;  // block formats: no UBWC to keep, views of the sRGB variant as before
+        }
+    }
+    if (img->mutable_format) ci.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
+    ci.imageType = is3d ? VK_IMAGE_TYPE_3D : one_d ? VK_IMAGE_TYPE_1D : VK_IMAGE_TYPE_2D;
+    ci.format = img->format;
+    ci.extent = {img->width, ci.imageType == VK_IMAGE_TYPE_1D ? 1 : img->height, is3d ? depth : 1};
+    ci.mipLevels = img->levels;
+    ci.arrayLayers = img->layers;
+    ci.samples = VK_SAMPLE_COUNT_1_BIT;
+    ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+    ci.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    if (!compressed) ci.usage |= aspect ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    {
+        VkFormatProperties fp{};
+        p_vkGetPhysicalDeviceFormatProperties(vk_physical(), ci.format, &fp);
+        img->storage = !compressed && !aspect && (fp.optimalTilingFeatures & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT);
+        if (img->storage) ci.usage |= VK_IMAGE_USAGE_STORAGE_BIT;
+    }
+    ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (!image_supported(ci, t->format)) return nullptr;
+    if (!check(p_vkCreateImage(vk_device(), &ci, nullptr, &img->image), "vkCreateImage")) return nullptr;
+    VkMemoryRequirements req{};
+    p_vkGetImageMemoryRequirements(vk_device(), img->image, &req);
+    const VkPhysicalDeviceMemoryProperties& mp = vk_memory_properties();
+    std::vector<uint32_t> device_types, shared_types;
+    static const bool allow_shared_fallback = [] {
+        const char* e = std::getenv("NX_NO_SHARED_VRAM_FALLBACK");
+        return !(e && e[0] == '1');
+    }();
+    for (int pass = 0; pass < 2; ++pass) {
+        for (uint32_t k = 0; k < mp.memoryTypeCount; ++k) {
+            if (!((req.memoryTypeBits >> k) & 1u)) continue;
+            const VkMemoryPropertyFlags f = mp.memoryTypes[k].propertyFlags;
+            if (f & VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT) continue;
+            const bool host_visible = (f & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) != 0;
+            if ((pass == 0) == host_visible) continue;
+            if (f & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
+                device_types.push_back(k);
+            else if (allow_shared_fallback)
+                shared_types.push_back(k);
+        }
+    }
+    if (device_types.empty() && shared_types.empty())
+        device_types.push_back(memory_type(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT));
+
+    const uint64_t budget = simulated_image_memory_budget();
+    if (budget) {
+        static bool logged = false;
+        if (!logged) {
+            log("nvn/vk: NX_VRAM_IMAGE_BUDGET_GB simulates %.2f GiB for NVN dedicated image allocations",
+                double(budget) / (1ull << 30));
+            logged = true;
+        }
+    }
+    auto is_capped = [&] {
+        if (!budget) return false;
+        const GpuImageMemoryStats stats = gpu_image_memory_stats();
+        const uint64_t device_live = stats.live_bytes > stats.shared_bytes ? stats.live_bytes - stats.shared_bytes : 0;
+        return req.size > budget || device_live > budget - req.size;
+    };
+    bool capped = is_capped();
+
+    VkMemoryAllocateInfo ai{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    ai.allocationSize = req.size;
+    VkResult last_result = capped ? VK_ERROR_OUT_OF_DEVICE_MEMORY : VK_ERROR_INITIALIZATION_FAILED;
+    uint32_t chosen_type = 0;
+    auto try_types = [&](const std::vector<uint32_t>& types) {
+        for (uint32_t type : types) {
+            ai.memoryTypeIndex = type;
+            last_result = p_vkAllocateMemory(vk_device(), &ai, nullptr, &img->memory);
+            if (last_result == VK_SUCCESS) {
+                chosen_type = type;
+                return true;
+            }
+            if (last_result == VK_ERROR_DEVICE_LOST) gpu_hung("vkAllocateMemory");
+            img->memory = VK_NULL_HANDLE;
+        }
+        return false;
+    };
+
+    if (!capped) try_types(device_types);
+    if (img->memory == VK_NULL_HANDLE && last_result == VK_ERROR_OUT_OF_DEVICE_MEMORY) {
+        const uint64_t frees_before = gpu_image_memory_stats().frees;
+        reclaim_reusable_images_now();
+        capped = is_capped();
+        if (!capped && gpu_image_memory_stats().frees > frees_before) try_types(device_types);
+    }
+    if (img->memory == VK_NULL_HANDLE && !shared_types.empty() && try_types(shared_types)) {
+        img->shared_memory = true;
+        static uint64_t spilled = 0;
+        const uint64_t n = ++spilled;
+        if (n <= 8 || (n & 255) == 0) {
+            const GpuImageMemoryStats stats = gpu_image_memory_stats();
+            log("nvn/vk: dedicated VRAM full; spilled %ux%u image (%.2f MiB) to shared GPU memory (type %u, shared live %.2f GiB)",
+                img->width, img->height, double(req.size) / (1ull << 20), chosen_type,
+                double(stats.shared_bytes + req.size) / (1ull << 30));
+        }
+    }
+    if (img->memory == VK_NULL_HANDLE) {
+        const GpuImageMemoryStats stats = gpu_image_memory_stats();
+        static uint64_t alloc_failures = 0;
+        const uint64_t n = ++alloc_failures;
+        if (std::getenv("NX_TRACE_VRAM") || capped || n <= 8 || (n & 255) == 0)
+            log("nvn/vk: image memory allocation failed (%d)%s: %ux%u request %.2f MiB, live %.2f GiB (%.2f GiB shared), %llu images",
+                int(last_result), capped ? " (simulated cap)" : "", img->width, img->height,
+                double(req.size) / (1ull << 20), double(stats.live_bytes) / (1ull << 30),
+                double(stats.shared_bytes) / (1ull << 30), (unsigned long long)stats.live_allocations);
+        p_vkDestroyImage(vk_device(), img->image, nullptr);
+        img->image = VK_NULL_HANDLE;
+        t->alloc_failed = true;
+        t->alloc_retry_frees = stats.frees;
+        t->alloc_failed_frame = g_frame.load(std::memory_order_relaxed);
+        return nullptr;
+    }
+    t->alloc_failed = false;
+    img->allocation_size = req.size;
+    gpu_image_memory_allocated(req.size, img->shared_memory);
+    if (!check(p_vkBindImageMemory(vk_device(), img->image, img->memory, 0), "vkBindImageMemory")) {
+        p_vkFreeMemory(vk_device(), img->memory, nullptr);
+        gpu_image_memory_freed(img->allocation_size, img->shared_memory);
+        p_vkDestroyImage(vk_device(), img->image, nullptr);
+        img->allocation_size = 0;
+        img->shared_memory = false;
+        img->memory = VK_NULL_HANDLE;
+        img->image = VK_NULL_HANDLE;
+        return nullptr;
+    }
+    constexpr VkComponentSwizzle kSwizzle[] = {VK_COMPONENT_SWIZZLE_ZERO, VK_COMPONENT_SWIZZLE_ONE, VK_COMPONENT_SWIZZLE_R,
+                                               VK_COMPONENT_SWIZZLE_G,    VK_COMPONENT_SWIZZLE_B,   VK_COMPONENT_SWIZZLE_A};
+    img->swizzle = {kSwizzle[t->swizzle[0]], kSwizzle[t->swizzle[1]], kSwizzle[t->swizzle[2]], kSwizzle[t->swizzle[3]]};
+    VkImageViewCreateInfo vi{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    vi.image = img->image;
+    vi.viewType = img->view_type;
+    vi.format = img->format;
+    // A sampled depth/stencil view reads depth.
+    vi.subresourceRange = {aspect == 3 ? VkImageAspectFlags(VK_IMAGE_ASPECT_DEPTH_BIT) : img->aspect, 0, img->levels, 0,
+                           img->layers};
+    check(p_vkCreateImageView(vk_device(), &vi, nullptr, &img->view), "vkCreateImageView");
+    static uint64_t created = 0;
+    if (g_trace || ++created % 1000 == 0)  // a sample of what keeps being created
+        log("nvn/vk: image %llu for texture %llx (memory %llx): %ux%u x%u layers, %u levels, target %u format %#x -> %d",
+            (unsigned long long)created, (unsigned long long)guest, (unsigned long long)t->memory,
+            img->width, img->height, img->layers, img->levels, t->target, t->format, int(img->format));
+    t->image = img;
+    if (t->memory) g_live_images[key] = img;
+    return img.get();
+}
+
+void set_shadow_scale(int mult) {
+    g_shadow_scale.store((mult == 2 || mult == 4) ? mult : 1, std::memory_order_relaxed);
+}
+
+GpuImage* latest_overlapping_shadow_image(uint64_t guest, GpuImage* image) {
+    static const bool enabled = std::getenv("NX_SHADOW_OVERLAP_ALIAS") != nullptr;
+    static const bool trace_cross_size = std::getenv("NX_TRACE_SHADOW_OVERLAP_CROSS") != nullptr;
+    if ((!enabled && !trace_cross_size) || !image) return image;
+    Texture* t = get<Texture>(guest);
+    if (!t || t->format != 0x32 || t->width != t->height || t->width < 1360 || !t->pool || !t->storage_size)
+        return image;
+    const bool can_alias = enabled && t->width == 2048;
+    const uint64_t end = t->offset + t->storage_size;
+    GpuImage* newest = image;
+    static std::set<std::array<uint64_t, 8>> logged_cross_overlaps;
+    static unsigned cross_overlap_logs = 0;
+    for (auto& entry : g_live_images) {
+        auto candidate = entry.second.lock();
+        if (!candidate || candidate.get() == image || !candidate->image || !candidate->rendered ||
+            candidate->pool != t->pool || candidate->nvn_format != t->format ||
+            candidate->logical_width != candidate->logical_height || candidate->logical_width < 1360 ||
+            !candidate->pool_size)
+            continue;
+        const uint64_t candidate_end = candidate->pool_offset + candidate->pool_size;
+        if (candidate->pool_offset >= end || candidate_end <= t->offset) continue;
+        if (trace_cross_size && cross_overlap_logs < 256 && candidate->logical_width != t->width &&
+            candidate->rendered_at > image->rendered_at) {
+            std::array<uint64_t, 8> key{t->pool, t->offset, t->storage_size, t->width, candidate->pool_offset,
+                                        candidate->pool_size, candidate->logical_width, candidate->rendered_at};
+            if (logged_cross_overlaps.insert(key).second) {
+                cross_overlap_logs++;
+                log("shadow-cross-overlap frame %llu texture %llx map %ux%u offset %llx size %llx rendered-at %llu "
+                    "overlaps newer map %ux%u offset %llx size %llx rendered-at %llu",
+                    (unsigned long long)g_frame.load(std::memory_order_relaxed), (unsigned long long)guest,
+                    t->width, t->height, (unsigned long long)t->offset, (unsigned long long)t->storage_size,
+                    (unsigned long long)image->rendered_at, candidate->logical_width, candidate->logical_height,
+                    candidate->pool_offset, (unsigned long long)candidate->pool_size,
+                    (unsigned long long)candidate->rendered_at);
+            }
+        }
+        if (can_alias && candidate->logical_width == t->width && candidate->rendered_at > newest->rendered_at)
+            newest = candidate.get();
+    }
+    if (newest == image) return image;
+    static std::set<std::array<uint64_t, 3>> logged_aliases;
+    std::array<uint64_t, 3> key{t->pool, t->offset, newest->pool_offset};
+    if (logged_aliases.insert(key).second)
+        log("shadow-map alias redirect frame %llu texture %llx offset %llx -> rendered offset %llx serial %llu",
+            (unsigned long long)g_frame.load(std::memory_order_relaxed), (unsigned long long)guest,
+            (unsigned long long)t->offset, (unsigned long long)newest->pool_offset,
+            (unsigned long long)newest->rendered_at);
+    return newest;
+}
+
+void transition(VkCommandBuffer cb, GpuImage& img, VkImageLayout to) {
+    if (img.layout == to) return;
+    VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    b.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
+    b.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+    b.oldLayout = img.layout;
+    b.newLayout = to;
+    b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.image = img.image;
+    b.subresourceRange = {img.aspect, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS};
+    p_vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0,
+                           nullptr, 1, &b);
+    img.layout = to;
+}
+
+}  // namespace nx::nvn
