@@ -9,7 +9,7 @@ A static recompilation of **Super Mario 3D World + Bowser's Fury** (`010028600EB
 ## Project Status & Goal
 
 - **Current Status:** Boots in-game at **60 FPS**, with some remaining stutters and graphical bugs.
-- **Goal:** A **fully playable PC experience**. Pre-built releases will be published once that milestone is reached.
+- **Goal:** A **fully playable PC experience**. A pre-built release will be published as soon as the game is stably playable (doesn't need to be 100% complete first).
 
 ## Built On
 
