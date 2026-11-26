@@ -164,6 +164,10 @@ uint64_t memguard_overlap_ns(uint64_t from, uint64_t to);
 // (frame_stats.cpp; Linux and Android, zeros elsewhere).
 void thread_counters(uint64_t& cpu_ns, long faults[2], long switches[2]);
 void input_script(PadState& p);  // NX_INPUT_SCRIPT presses (input_script.cpp), for unattended runs
+void set_input_recording(bool on);  // live toggle for input_record.txt recording
+bool input_recording();
+void set_high_fps_interp(bool on);  // live toggle for >60 FPS logic decoupling + interpolation
+bool high_fps_interp();
 
 // Audio: s16 48 kHz (2 channels stereo, or 6 channels 5.1 PCM). `done` is called when a submitted buffer has been played.
 using AudioDone = void (*)(void* ctx);

@@ -17,6 +17,7 @@
 #include "overlay/overlay_internal.h"
 #include "overlay/overlay_ui.h"
 #include "nextendo_client.h"
+#include "platform.h"
 #include "svc_am.h"
 
 namespace nx::nvn {
@@ -187,7 +188,7 @@ constexpr const char* kPhysical[kControlCount] = {
     "A / Cross", "B / Circle", "X / Square", "Y / Triangle", "LB / L1", "RB / R1", "LT / L2", "RT / R2",
     "Start / +", "Back / -", "L3 / LS", "R3 / RS", "D-pad Left", "D-pad Up", "D-pad Right", "D-pad Down",
 };
-constexpr int kTabs = 7;
+constexpr int kTabs = 8;
 
 namespace desc {
 constexpr const char* language = "Language of this menu.";
@@ -2065,6 +2066,184 @@ void speedrun_tab(MenuContext& c) {
     rows::end();
 }
 
+struct DebugLabels {
+    const char* tab;
+    const char* sec_input;
+    const char* record_label;
+    const char* record_desc;
+    const char* sec_diag;
+    const char* trace_label;
+    const char* trace_desc;
+    const char* interp_label;
+    const char* interp_desc;
+    const char* note;
+};
+
+constexpr DebugLabels kDebugLabels[13] = {
+    // 0: English
+    {"Debug",
+     "Input & Replay",
+     "Record controller inputs",
+     "Records all button presses and stick directions to <data folder>/input_record.txt (same as NX_INPUT_RECORD=1) for automated playback via NX_INPUT_SCRIPT. Toggling off flushes and closes the file.",
+     "Diagnostics & Rendering",
+     "Verbose trace log (NX_TRACE)",
+     "Writes detailed filesystem, IPC, SVC, and HLE call traces to nx.log in real time (same as NX_TRACE=1). Useful for diagnosing hangs or bugs, with some performance overhead.",
+     "High-FPS interpolation",
+     "Decouples 60 Hz game logic and interpolates camera and 3D skeletons above 60 FPS. Disable to compare raw frame rendering when debugging high-FPS flicker or visual artifacts.",
+     "Debug toggles apply immediately. Input recording and trace toggles are session-only and reset on restart."},
+    // 1: Italiano
+    {"Debug",
+     "Input e Replay",
+     "Registra input controller",
+     "Registra in tempo reale tutti i tasti e le direzioni dello stick in <cartella dati>/input_record.txt (equivalente a NX_INPUT_RECORD=1) per il replay con NX_INPUT_SCRIPT. Disattivando salva e chiude il file.",
+     "Diagnostica e Rendering",
+     "Log trace dettagliato (NX_TRACE)",
+     "Scrive in tempo reale i trace dettagliati di filesystem, IPC, SVC e HLE in nx.log (equivalente a NX_TRACE=1). Utile per diagnosticare blocchi o bug, con un leggero impatto sulle prestazioni.",
+     "Interpolazione FPS elevati",
+     "Mantiene la logica di gioco a 60 Hz e interpola telecamera e scheletri 3D oltre i 60 FPS. Disattiva per confrontare il rendering grezzo durante il debug di sfarfallii o artefatti ad alti FPS.",
+     "Le opzioni di debug si applicano subito. Registrazione input e log trace valgono solo per la sessione corrente."},
+    // 2: Deutsch
+    {"Debug",
+     "Eingabe & Replay",
+     "Controller-Eingaben aufzeichnen",
+     "Zeichnet alle Tastendrucke und Stick-Richtungen in Echtzeit in <Datenordner>/input_record.txt auf (wie NX_INPUT_RECORD=1) fur die Wiedergabe mit NX_INPUT_SCRIPT. Ausschalten speichert und schliesst die Datei.",
+     "Diagnose & Rendering",
+     "Ausfuhrliches Trace-Log (NX_TRACE)",
+     "Schreibt detaillierte Dateisystem-, IPC-, SVC- und HLE-Aufrufe in Echtzeit in nx.log (wie NX_TRACE=1). Hilfreich bei Fehlern oder Hangern, verursacht etwas Overhead.",
+     "High-FPS-Interpolation",
+     "Entkoppelt die 60-Hz-Spiellogik und interpoliert Kamera sowie 3D-Skelette uber 60 FPS. Zum Debuggen von Flimmern bei hohen Bildraten deaktivierbar.",
+     "Debug-Schalter wirken sofort. Eingabeaufzeichnung und Trace-Log gelten nur fur diese Sitzung."},
+    // 3: Français
+    {"Debug",
+     "Entrees et Replay",
+     "Enregistrer les entrees manette",
+     "Enregistre en temps reel tous les boutons et directions du stick dans <dossier donnees>/input_record.txt (comme NX_INPUT_RECORD=1) pour la lecture via NX_INPUT_SCRIPT. Desactiver enregistre et ferme le fichier.",
+     "Diagnostics et Rendu",
+     "Journal trace detaille (NX_TRACE)",
+     "Ecrit les traces detaillees du systeme de fichiers, IPC, SVC et HLE dans nx.log en temps reel (comme NX_TRACE=1). Utile pour diagnostiquer les bugs, avec un leger cout en performances.",
+     "Interpolation hauts FPS",
+     "Decouple la logique a 60 Hz et interpole la camera et les squelettes 3D au-dela de 60 FPS. Desactivez pour comparer le rendu brut lors du debogage du scintillement.",
+     "Les options de debug s'appliquent immediatement. L'enregistrement et le trace se reinitialisent au redemarrage."},
+    // 4: Español
+    {"Debug",
+     "Entrada y Replay",
+     "Grabar entradas del mando",
+     "Graba en tiempo real todos los botones y direcciones del stick en <carpeta de datos>/input_record.txt (igual que NX_INPUT_RECORD=1) para reproducirlo con NX_INPUT_SCRIPT. Al desactivar guarda y cierra el archivo.",
+     "Diagnostico y Renderizado",
+     "Registro trace detallado (NX_TRACE)",
+     "Escribe trazas detalladas de sistema de archivos, IPC, SVC y HLE en nx.log en tiempo real (igual que NX_TRACE=1). Util para diagnosticar fallos, con algo de carga extra.",
+     "Interpolacion de altos FPS",
+     "Desacopla la logica a 60 Hz e interpola camara y esqueletos 3D por encima de 60 FPS. Desactivalo para comparar el renderizado sin interpolar al depurar parpadeos.",
+     "Las opciones de debug se aplican al instante. La grabacion de entradas y el registro trace son solo para esta sesion."},
+    // 5: 한국어
+    {"디버그",
+     "입력 및 리플레이",
+     "컨트롤러 입력 기록",
+     "모든 버튼 입력과 스틱 방향을 실시간으로 <데이터 폴더>/input_record.txt에 기록합니다(NX_INPUT_RECORD=1과 동일). NX_INPUT_SCRIPT로 재생할 수 있으며 끄면 파일이 저장되고 닫힙니다.",
+     "진단 및 렌더링",
+     "상세 트레이스 로그 (NX_TRACE)",
+     "파일시스템, IPC, SVC, HLE 호출 내역을 실시간으로 nx.log에 기록합니다(NX_TRACE=1과 동일). 오류나 멈춤 현상 분석에 유용하지만 약간의 성능 저하가 있습니다.",
+     "고주사율 보간",
+     "게임 로직은 60 Hz로 유지하고 60 FPS 초과 시 카메라와 3D 스켈레톤을 보간합니다. 고주사율 깜빡임 디버깅 시 꺼서 원본 프레임과 비교할 수 있습니다.",
+     "디버그 토글은 즉시 적용됩니다. 입력 기록과 트레이스 로그는 현재 세션에만 유지됩니다."},
+    // 6: 日本語
+    {"デバッグ",
+     "入力とリプレイ",
+     "コントローラー入力を記録",
+     "ボタン入力とスティック方向をリアルタイムで <データフォルダ>/input_record.txt に記録します（NX_INPUT_RECORD=1 と同等）。NX_INPUT_SCRIPT で再生でき、オフにすると保存して閉じます。",
+     "診断とレンダリング",
+     "詳細トレースログ (NX_TRACE)",
+     "ファイルシステム、IPC、SVC、HLE 呼び出しの詳細をリアルタイムで nx.log に出力します（NX_TRACE=1 と同等）。不具合やフリーズの調査に役立ちますが、多少の負荷がかかります。",
+     "高FPS補間",
+     "ゲームロジックを 60 Hz に保ちつつ、60 FPS 超でカメラと 3D スケルトンを補間します。高FPS時のちらつきを調査する際、オフにして比較できます。",
+     "デバッグ設定は即座に反映されます。入力記録とトレースログは現在のセッションのみ有効です。"},
+    // 7: العربية
+    {"تصحيح الأخطاء",
+     "الإدخال والإعادة",
+     "تسجيل مدخلات وحدة التحكم",
+     "يسجل جميع ضغطات الأزرار واتجاهات العصا في الوقت الفعلي إلى <مجلد البيانات>/input_record.txt (مثل NX_INPUT_RECORD=1) لإعادة التشغيل عبر NX_INPUT_SCRIPT. الإيقاف يحفظ الملف ويغلقه.",
+     "التشخيص والعرض",
+     "سجل التتبع التفصيلي (NX_TRACE)",
+     "يكتب تتبعات مفصلة لنظام الملفات وIPC وSVC وHLE إلى nx.log في الوقت الفعلي (مثل NX_TRACE=1). مفيد لتشخيص الأعطال مع تأثير بسيط على الأداء.",
+     "استيفاء الإطارات العالية",
+     "يفصل منطق اللعبة عند 60 هرتز ويستكمل حركة الكاميرا والهياكل ثلاثية الأبعاد فوق 60 إطاراً. عطّله للمقارنة عند فحص الوميض في الإطارات العالية.",
+     "تُطبّق خيارات التصحيح فوراً. تسجيل المدخلات وسجل التتبع للجلسة الحالية فقط."},
+    // 8: Русский
+    {"Отладка",
+     "Ввод и повтор",
+     "Запись ввода контроллера",
+     "Записывает все нажатия кнопок и направления стика в реальном времени в <папка данных>/input_record.txt (аналог NX_INPUT_RECORD=1) для воспроизведения через NX_INPUT_SCRIPT. Выключение сохраняет и закрывает файл.",
+     "Диагностика и рендер",
+     "Подробный лог трассировки (NX_TRACE)",
+     "Записывает подробные вызовы ФС, IPC, SVC и HLE в nx.log в реальном времени (аналог NX_TRACE=1). Полезно для поиска сбоев, но немного снижает производительность.",
+     "Интерполяция высокого FPS",
+     "Фиксирует логику на 60 Гц и интерполирует камеру и 3D-скелеты выше 60 FPS. Отключите для сравнения при отладке мерцания на высоком FPS.",
+     "Переключатели отладки действуют сразу. Запись ввода и трассировка активны только в текущей сессии."},
+    // 9: Türkçe
+    {"Hata Ayıklama",
+     "Girdi ve Tekrar",
+     "Kontrolcu girdilerini kaydet",
+     "Tum tus basimlarini ve cubuk yonlerini gercek zamanli olarak <veri klasoru>/input_record.txt dosyasina kaydeder (NX_INPUT_RECORD=1 ile ayni). Kapatildiginda dosyayi kaydedip kapatir.",
+     "Tanilama ve Cizim",
+     "Ayrintili izleme gunlugu (NX_TRACE)",
+     "Dosya sistemi, IPC, SVC ve HLE cagrilarini gercek zamanli olarak nx.log dosyasina yazar (NX_TRACE=1 ile ayni). Hatalari bulmak icin faydalidir, performansi bir miktar etkileyebilir.",
+     "Yuksek FPS enterpolasyonu",
+     "Oyun mantigini 60 Hz'de tutup 60 FPS uzerinde kamera ve 3D iskeletleri enterpole eder. Yuksek FPS titremelerini incelerken karsilastirmak icin kapatabilirsiniz.",
+     "Hata ayiklama secenekleri aninda uygulanir. Girdi kaydi ve izleme gunlugu yalnizca bu oturum icindir."},
+    // 10: Nederlands
+    {"Debug",
+     "Invoer & Replay",
+     "Controller-invoer opnemen",
+     "Neemt alle knoppen en stickrichtingen live op naar <datamap>/input_record.txt (hetzelfde als NX_INPUT_RECORD=1) voor herhaling via NX_INPUT_SCRIPT. Uitschakelen slaat het bestand op en sluit het.",
+     "Diagnose & Rendering",
+     "Uitgebreide tracelog (NX_TRACE)",
+     "Schrijft gedetailleerde bestandssysteem-, IPC-, SVC- en HLE-aanroepen live naar nx.log (hetzelfde als NX_TRACE=1). Handig bij foutopsporing, met lichte prestatie-impact.",
+     "Hoge-FPS-interpolatie",
+     "Ontkoppelt de 60 Hz-spellogica en interpoleert camera en 3D-skeletten boven 60 FPS. Schakel uit om ruwe frames te vergelijken bij het debuggen van flikkering.",
+     "Debug-opties werken direct. Invoeropname en tracelog gelden alleen voor de huidige sessie."},
+    // 11: 简体中文
+    {"调试",
+     "输入与回放",
+     "录制手柄输入",
+     "实时将所有按键与摇杆方向记录到 <数据目录>/input_record.txt（等同于 NX_INPUT_RECORD=1），供 NX_INPUT_SCRIPT 回放使用。关闭后会保存并关闭文件。",
+     "诊断与渲染",
+     "详细跟踪日志 (NX_TRACE)",
+     "实时将文件系统、IPC、SVC 和 HLE 调用跟踪写入 nx.log（等同于 NX_TRACE=1）。有助于排查卡死或错误，会带来一定性能开销。",
+     "高帧率插值",
+     "将游戏逻辑锁定在 60 Hz，并在超过 60 FPS 时对相机和 3D 骨骼进行插值。调试高帧率闪烁时可关闭以对比原始帧渲染。",
+     "调试开关立即生效。输入录制与跟踪日志仅在当前会话有效，重启后重置。"},
+    // 12: 繁體中文
+    {"除錯",
+     "輸入與重播",
+     "錄製手把輸入",
+     "即時將所有按鍵與搖桿方向記錄到 <資料夾>/input_record.txt（等同於 NX_INPUT_RECORD=1），供 NX_INPUT_SCRIPT 重播使用。關閉後會儲存並關閉檔案。",
+     "診斷與算繪",
+     "詳細追蹤日誌 (NX_TRACE)",
+     "即時將檔案系統、IPC、SVC 與 HLE 呼叫追蹤寫入 nx.log（等同於 NX_TRACE=1）。有助於排查卡頓或錯誤，會帶來些許效能開銷。",
+     "高幀率內插",
+     "將遊戲邏輯鎖定在 60 Hz，並在超過 60 FPS 時對相機與 3D 骨架進行內插。除錯高幀率閃爍時可關閉以對比原始算繪。",
+     "除錯開關立即生效。輸入錄製與追蹤日誌僅於目前工作階段有效，重啟後重置。"},
+};
+
+void debug_tab(MenuContext& c) {
+    Settings& s = c.settings;
+    const int lang = std::clamp(s.language, 0, 12);
+    const DebugLabels& dl = kDebugLabels[lang];
+    rows::begin("debug", c.height);
+
+    rows::section(dl.sec_input);
+    bool rec = plat::input_recording();
+    if (rows::toggle(dl.record_label, &rec, false, dl.record_desc)) plat::set_input_recording(rec);
+
+    rows::section(dl.sec_diag);
+    rows::toggle(dl.trace_label, &nx::g_trace, false, dl.trace_desc);
+    bool interp = plat::high_fps_interp();
+    if (rows::toggle(dl.interp_label, &interp, true, dl.interp_desc)) plat::set_high_fps_interp(interp);
+
+    rows::page_note(dl.note);
+    rows::end();
+}
+
 // The close X in the top-right corner (as Savage Wind's menu.mm: lit when hovered or selected).
 bool close_button(float k) {
     const float bx = 44 * k;
@@ -2130,7 +2309,8 @@ void draw_menu(MenuContext& c) {
     if (close_button(k)) c.open = false;
     ImGui::Dummy(ImVec2(0, 4 * k));
 
-    const char* names[kTabs] = {l.video, l.audio, l.controls, l.overlay, l.system, "Network", "Speedrun"};
+    const char* names[kTabs] = {l.video, l.audio, l.controls, l.overlay, l.system, "Network", "Speedrun",
+                                kDebugLabels[std::clamp(s.language, 0, 12)].tab};
     int current = -1;
     // Tabs follow the keyboard / controller focus: moving onto a tab with the arrows or the D-pad shows it (next
     // frame), with no Enter or A needed. The mouse still selects by clicking. Only a change of focus moves the tab: L / R
@@ -2182,7 +2362,8 @@ void draw_menu(MenuContext& c) {
                 case 3: overlay_tab(c); break;
                 case 4: system_tab(c, l); break;
                 case 5: network_tab(c); break;
-                default: speedrun_tab(c); break;
+                case 6: speedrun_tab(c); break;
+                default: debug_tab(c); break;
             }
             ImGui::EndChild();
             ImGui::PopStyleVar();

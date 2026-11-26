@@ -13,6 +13,10 @@
 
 namespace nx {
 
+namespace nvn {
+int frame_cap();
+}
+
 namespace {
 
 constexpr uint64_t kFakeDisplay = kKernelBase - 0x1000;  // opaque pointers, never dereferenced by the game
@@ -59,9 +63,22 @@ void vsync_thread() {
         }
         // On the display's own blank where its refresh is a multiple of 60 Hz: a timer of our own drifted against
         // it, and every few seconds MAILBOX showed a frame twice or dropped one (microstutter).
+        const int cap = nvn::frame_cap();
         if (plat::fast_forward()) {  // ticks as fast as the game takes them (500 Hz at most)
             plat::sleep_ns(2'000'000);
             next = plat::monotonic_ns();
+        } else if (cap > 60) {
+            // High-FPS mode (90/120/144/240): signal vsync faster than the target cap so pace_present()
+            // in nvn_queue.cpp owns the exact sub-millisecond frame pacing without double-waiting.
+            const uint64_t hz = std::min<uint64_t>(500, uint64_t(cap) * 2);
+            const uint64_t period = 1'000'000'000ull / hz;
+            next += period;
+            const uint64_t now = plat::monotonic_ns();
+            if (now >= next) {
+                next = now;
+            } else {
+                plat::sleep_ns(int64_t(next - now));
+            }
         } else if (plat::wait_vblank()) {
             next = plat::monotonic_ns();
         } else {
