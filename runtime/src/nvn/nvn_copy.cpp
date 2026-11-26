@@ -103,6 +103,15 @@ void replay_copy(VkCommandBuffer cb, const Cmd& c, const CmdList& list) {
     int32_t sh = scaled_extent(info.src[1], std::max(info.src[4], 1), src->render_scale);
     int32_t dw = scaled_extent(info.dst[0], std::max(info.dst[3], 1), dx_scale);
     int32_t dh = scaled_extent(info.dst[1], std::max(info.dst[4], 1), dst->render_scale);
+    auto clamp_rect = [](int32_t& o, int32_t& e, uint32_t dim, uint32_t level) {
+        int32_t limit = int32_t(std::max(1u, dim >> level));
+        o = std::clamp(o, 0, limit - 1);
+        e = std::clamp(e, 1, limit - o);
+    };
+    clamp_rect(sx, sw, src->width, sl);
+    clamp_rect(sy, sh, src->height, sl);
+    clamp_rect(dx, dw, dst->width, dl);
+    clamp_rect(dy, dh, dst->height, dl);
     if (same) {
         // One subresource and layer range, and the rectangles (and 3D slices) meet: Vulkan forbids it, dropped.
         bool overlap = ss.mipLevel == ds.mipLevel &&

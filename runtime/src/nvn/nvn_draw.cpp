@@ -767,7 +767,7 @@ bool draw(VkCommandBuffer cb, const Targets& t, uint32_t mode, bool indexed, con
             samples_stock_shadow |= sampled && source && sampled->logical_width == 29 &&
                                     sampled->logical_height == 29 && source->format == 0x01;
         }
-        if (!samples_wide) {
+        if (!samples_wide && !is_sm3dw) {
             key.uw_x = 1.0f / uw_factor();
             static const bool powerup_test = std::getenv("NX_UW_POWERUP_TEST") &&
                                              std::string(std::getenv("NX_UW_POWERUP_TEST")) == "1";
