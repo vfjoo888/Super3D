@@ -1369,10 +1369,29 @@ void audio(MenuContext& c, const Labels& l) {
         settings_changed(true);
     rows::indent(-1);
     rows::section(l.game_language);
-    const int game_lang_count = overlay::game_version() == "1.2.1" ? int(std::size(kGameLanguageNames)) : 16;
-    if (rows::choice(l.game_language, &s.game_language, kGameLanguageNames, game_lang_count,
-                     kDefaults.game_language, translated_desc(desc::game_language, lang)))
-        settings_changed(true), ui::notify(l.game_language_restart);
+#if defined(NX_GAME_NAME)
+    if (std::strcmp(NX_GAME_NAME, "sm3dw") == 0) {
+        static constexpr int kSm3dwLangIds[15] = {0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+        static constexpr const char* kSm3dwLangNames[15] = {
+            "English", "Italiano", "Deutsch", "Français", "Español", "한국어", "日本語",
+            "Nederlands", "Русский", "Simplified Chinese", "Traditional Chinese",
+            "Português", "Español (Latinoamérica)", "Français (Canada)", "English (UK)",
+        };
+        int choice = 0;
+        for (int i = 0; i < 15; ++i)
+            if (kSm3dwLangIds[i] == s.game_language) { choice = i; break; }
+        if (rows::choice(l.game_language, &choice, kSm3dwLangNames, 15, 0, translated_desc(desc::game_language, lang))) {
+            s.game_language = kSm3dwLangIds[std::clamp(choice, 0, 14)];
+            settings_changed(true), ui::notify(l.game_language_restart);
+        }
+    } else
+#endif
+    {
+        const int game_lang_count = overlay::game_version() == "1.2.1" ? int(std::size(kGameLanguageNames)) : 16;
+        if (rows::choice(l.game_language, &s.game_language, kGameLanguageNames, game_lang_count,
+                         kDefaults.game_language, translated_desc(desc::game_language, lang)))
+            settings_changed(true), ui::notify(l.game_language_restart);
+    }
     rows::section(kExtraUiText[lang].reset_sec);
     {
         char rlabel[64];
