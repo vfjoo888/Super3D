@@ -66,8 +66,9 @@ bool fsr_active();
 bool fsr_record(VkCommandBuffer cb, GpuImage& src, GpuImage& dst, VkExtent2D extent, const int32_t* crop);
 GpuImage* fsr_output();  // the last upscaled image, for frame dumps with NX_DUMP_FSR=1 (else null)
 void fsr_release();      // the swapchain goes away
-// nvn_fxaa.cpp: FXAA on the presented image (NX_FXAA, the overlay menu's Anti-aliasing setting).
+// nvn_fxaa.cpp: Post-process anti-aliasing on the presented image (0 Off, 1 FXAA, 2 SMAA; NX_AA / NX_FXAA).
 void set_fxaa(bool on);
+void set_aa_mode(int mode);
 GpuImage* fxaa_record(VkCommandBuffer cb, GpuImage& src);  // the anti-aliased image, or null (off, or not RGBA8)
 void fxaa_release();
 // nvn_sampler.cpp: the player's anisotropic filtering (0 the game's, 2..16); read at the first sampler (a restart).

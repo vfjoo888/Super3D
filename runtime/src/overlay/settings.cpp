@@ -82,7 +82,7 @@ bool load_settings(const std::string& path, Settings& s) {
         else if (std::sscanf(l, "speedrun_timer_color=%d", &v) == 1) s.speedrun_timer_color = std::clamp(v, 0, 5);
         else if (std::sscanf(l, "upscaler=%d", &v) == 1) s.upscaler = std::clamp(v, 0, 1);
         else if (std::sscanf(l, "fsr_sharpness=%d", &v) == 1) s.fsr_sharpness = std::clamp(v, 0, 200);
-        else if (std::sscanf(l, "antialiasing=%d", &v) == 1) s.antialiasing = std::clamp(v, 0, 1);
+        else if (std::sscanf(l, "antialiasing=%d", &v) == 1) s.antialiasing = std::clamp(v, 0, 2);
         else if (std::sscanf(l, "anisotropy=%d", &v) == 1) s.anisotropy = std::clamp(v, 0, 16);
         else if (std::sscanf(l, "shadow_scale=%d", &v) == 1) s.shadow_scale = (v == 2 || v == 4) ? v : 1;
         else if (std::sscanf(l, "rumble=%d", &v) == 1) s.rumble = std::clamp(v, 0, 100);

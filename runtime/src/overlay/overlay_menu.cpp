@@ -223,8 +223,8 @@ constexpr const char* memory = "On desktop, passing this threshold asks Vulkan t
 constexpr const char* upscaler = "How the game's image is enlarged when it is smaller than the window (a lower internal "
                                  "resolution, or fullscreen above 1080p). FSR 1 (AMD FidelityFX Super Resolution) keeps "
                                  "edges sharp; Bilinear is a plain stretch.";
-constexpr const char* antialiasing = "Smooths jagged edges on the final image. FXAA is quick and can soften fine "
-                                     "detail a little; the game's own anti-aliasing stays as it is.";
+constexpr const char* antialiasing = "Smooths jagged edges on the final image. FXAA is fast but can soften fine "
+                                     "detail; SMAA keeps textures and UI sharper.";
 constexpr const char* anisotropy = "Keeps textures sharp on surfaces seen at an angle. Game default uses the game's "
                                    "own setting; higher costs a little GPU time. Applies after restarting the game.";
 constexpr const char* sharpness = "FSR 1's sharpening: higher is sharper (more contrast on edges), lower is softer.";
@@ -258,7 +258,7 @@ const char* translated_desc(const char* text, int lang) {
         if (text == desc::position) return "Position der Leistungsanzeige.";
         if (text == desc::memory) return "Ab diesem Wert gibt Vulkan ungenutzte Bilder frei. Kein direktes VRAM-Limit.";
         if (text == desc::upscaler) return "Verfahren zur Bildvergrößerung. FSR 1 hält Kanten scharf.";
-        if (text == desc::antialiasing) return "Glättet Kanten. FXAA kann feine Details leicht verwischen.";
+        if (text == desc::antialiasing) return "Glättet Kanten. FXAA ist schnell, kann Details aber leicht verwischen; SMAA hält Texturen und UI schärfer.";
         if (text == desc::anisotropy) return "Schärft Texturen aus schrägen Blickwinkeln. Neustart erforderlich.";
         if (text == desc::sharpness) return "FSR-1-Schärfe einstellen.";
         if (text == desc::low_vram) return "Komprimiert dekodierte Texturen, um VRAM zu sparen. Neustart erforderlich.";
@@ -287,7 +287,7 @@ const char* translated_desc(const char* text, int lang) {
         if (text == desc::position) return "Position du panneau de performances.";
         if (text == desc::memory) return "Au-delà de ce seuil, Vulkan libère les images inutilisées. Ce n’est pas une limite directe de VRAM.";
         if (text == desc::upscaler) return "Méthode d’agrandissement. FSR 1 préserve la netteté des contours.";
-        if (text == desc::antialiasing) return "Lisse les contours. FXAA peut adoucir légèrement les détails.";
+        if (text == desc::antialiasing) return "Lisse les contours. FXAA est rapide mais adoucit légèrement les détails ; SMAA préserve la netteté des textures et de l’interface.";
         if (text == desc::anisotropy) return "Améliore la netteté des textures vues en biais. Redémarrage nécessaire.";
         if (text == desc::sharpness) return "Régler la netteté de FSR 1.";
         if (text == desc::low_vram) return "Compresse les textures décodées pour économiser la VRAM. Redémarrage nécessaire.";
@@ -316,7 +316,7 @@ const char* translated_desc(const char* text, int lang) {
         if (text == desc::position) return "Posición del panel de rendimiento.";
         if (text == desc::memory) return "Al superar este umbral Vulkan libera imágenes sin usar. No es un límite directo de VRAM.";
         if (text == desc::upscaler) return "Método para ampliar la imagen. FSR 1 conserva los bordes nítidos.";
-        if (text == desc::antialiasing) return "Suaviza bordes dentados. FXAA puede suavizar detalles finos.";
+        if (text == desc::antialiasing) return "Suaviza bordes dentados. FXAA es rápido pero puede suavizar detalles; SMAA mantiene más nítidas las texturas y la interfaz.";
         if (text == desc::anisotropy) return "Mejora las texturas vistas en ángulo. Requiere reiniciar.";
         if (text == desc::sharpness) return "Ajusta la nitidez de FSR 1.";
         if (text == desc::low_vram) return "Comprime texturas decodificadas para ahorrar VRAM. Requiere reiniciar.";
@@ -345,7 +345,7 @@ const char* translated_desc(const char* text, int lang) {
         if (text == desc::position) return "성능 패널의 위치입니다.";
         if (text == desc::memory) return "이 기준을 넘으면 Vulkan이 사용하지 않는 이미지를 해제합니다. 직접적인 VRAM 제한은 아닙니다.";
         if (text == desc::upscaler) return "이미지 확대 방식을 선택합니다. FSR 1은 가장자리를 선명하게 유지합니다.";
-        if (text == desc::antialiasing) return "계단 현상을 줄입니다. FXAA는 세부 묘사를 약간 흐리게 할 수 있습니다.";
+        if (text == desc::antialiasing) return "계단 현상을 줄입니다. FXAA는 빠르지만 세부 묘사를 약간 흐리게 할 수 있으며, SMAA는 텍스처와 UI를 더 선명하게 유지합니다.";
         if (text == desc::anisotropy) return "비스듬히 보이는 텍스처를 선명하게 합니다. 재시작 후 적용됩니다.";
         if (text == desc::sharpness) return "FSR 1 선명도를 조절합니다.";
         if (text == desc::low_vram) return "디코딩된 텍스처를 압축해 VRAM을 절약합니다. 재시작 후 적용됩니다.";
@@ -374,7 +374,7 @@ const char* translated_desc(const char* text, int lang) {
         if (text == desc::position) return "パフォーマンス表示の位置です。";
         if (text == desc::memory) return "この値を超えると Vulkan が未使用の画像を解放します。VRAM の直接的な上限ではありません。";
         if (text == desc::upscaler) return "画像の拡大方法です。FSR 1 は輪郭を鮮明に保ちます。";
-        if (text == desc::antialiasing) return "輪郭のギザギザを軽減します。FXAA は細部を少しぼかす場合があります。";
+        if (text == desc::antialiasing) return "輪郭のギザギザを軽減します。FXAA は高速ですが細部が少しぼけることがあり、SMAA はテクスチャや UI を鮮明に保ちます。";
         if (text == desc::anisotropy) return "斜めから見たテクスチャを鮮明にします。再起動後に適用されます。";
         if (text == desc::sharpness) return "FSR 1 の鮮明さを調整します。";
         if (text == desc::low_vram) return "デコード済みテクスチャを圧縮して VRAM を節約します。再起動後に適用されます。";
@@ -403,7 +403,7 @@ const char* translated_desc(const char* text, int lang) {
         if (text == desc::position) return "Положение панели производительности.";
         if (text == desc::memory) return "При превышении Vulkan освобождает неиспользуемые изображения. Это не прямой лимит VRAM.";
         if (text == desc::upscaler) return "Способ увеличения изображения. FSR 1 сохраняет чёткость краёв.";
-        if (text == desc::antialiasing) return "Сглаживает края. FXAA может слегка размывать детали.";
+        if (text == desc::antialiasing) return "Сглаживает края. FXAA быстрее, но может слегка размывать детали; SMAA сохраняет чёткость текстур и интерфейса.";
         if (text == desc::anisotropy) return "Повышает чёткость текстур под углом. Требуется перезапуск.";
         if (text == desc::sharpness) return "Настройка резкости FSR 1.";
         if (text == desc::low_vram) return "Сжимает декодированные текстуры для экономии VRAM. Требуется перезапуск.";
@@ -432,7 +432,7 @@ const char* translated_desc(const char* text, int lang) {
         if (text == desc::position) return "Positie van het prestatiepaneel.";
         if (text == desc::memory) return "Boven deze grens geeft Vulkan ongebruikte afbeeldingen vrij. Dit is geen directe VRAM-limiet.";
         if (text == desc::upscaler) return "Methode om de afbeelding te vergroten. FSR 1 houdt randen scherp.";
-        if (text == desc::antialiasing) return "Maakt randen glad. FXAA kan details iets verzachten.";
+        if (text == desc::antialiasing) return "Maakt randen glad. FXAA is snel maar kan details iets verzachten; SMAA houdt texturen en UI scherper.";
         if (text == desc::anisotropy) return "Maakt schuin bekeken texturen scherper. Herstart vereist.";
         if (text == desc::sharpness) return "Past de scherpte van FSR 1 aan.";
         if (text == desc::low_vram) return "Comprimeert gedecodeerde texturen om VRAM te besparen. Herstart vereist.";
@@ -461,7 +461,7 @@ const char* translated_desc(const char* text, int lang) {
         if (text == desc::position) return "性能面板的位置。";
         if (text == desc::memory) return "超过阈值时 Vulkan 会释放未使用的图像。这不是直接的显存上限。";
         if (text == desc::upscaler) return "图像放大方式。FSR 1 可保持边缘清晰。";
-        if (text == desc::antialiasing) return "平滑锯齿。FXAA 可能稍微模糊细节。";
+        if (text == desc::antialiasing) return "平滑锯齿。FXAA 速度快但可能稍微模糊细节；SMAA 可让纹理和界面更清晰。";
         if (text == desc::anisotropy) return "提高斜向纹理清晰度。重启后生效。";
         if (text == desc::sharpness) return "调整 FSR 1 锐度。";
         if (text == desc::low_vram) return "压缩解码后的纹理以节省显存。重启后生效。";
@@ -490,7 +490,7 @@ const char* translated_desc(const char* text, int lang) {
         if (text == desc::position) return "效能面板的位置。";
         if (text == desc::memory) return "超過門檻時 Vulkan 會釋放未使用的影像。這不是直接的顯示記憶體上限。";
         if (text == desc::upscaler) return "影像放大方式。FSR 1 可保持邊緣清晰。";
-        if (text == desc::antialiasing) return "平滑鋸齒。FXAA 可能稍微模糊細節。";
+        if (text == desc::antialiasing) return "平滑鋸齒。FXAA 速度快但可能稍微模糊細節；SMAA 可讓材質和介面更清晰。";
         if (text == desc::anisotropy) return "提高斜向材質清晰度。重新啟動後生效。";
         if (text == desc::sharpness) return "調整 FSR 1 銳利度。";
         if (text == desc::low_vram) return "壓縮解碼後的材質以節省顯示記憶體。重新啟動後生效。";
@@ -519,7 +519,7 @@ const char* translated_desc(const char* text, int lang) {
         if (text == desc::position) return "موضع لوحة الأداء.";
         if (text == desc::memory) return "عند تجاوز الحد يحرر Vulkan الصور غير المستخدمة. هذا ليس حداً مباشراً لذاكرة الفيديو.";
         if (text == desc::upscaler) return "طريقة تكبير الصورة. يحافظ FSR 1 على وضوح الحواف.";
-        if (text == desc::antialiasing) return "ينعم الحواف المتعرجة. قد يقلل FXAA وضوح التفاصيل قليلاً.";
+        if (text == desc::antialiasing) return "ينعم الحواف المتعرجة. FXAA سريع لكنه قد يقلل وضوح التفاصيل قليلاً؛ بينما يحافظ SMAA على حدة الخامات والواجهة.";
         if (text == desc::anisotropy) return "يحسن وضوح الخامات المائلة. يسري بعد إعادة التشغيل.";
         if (text == desc::sharpness) return "ضبط حدة FSR 1.";
         if (text == desc::low_vram) return "ضغط الخامات المفككة لتوفير ذاكرة الفيديو. يسري بعد إعادة التشغيل.";
@@ -548,7 +548,7 @@ const char* translated_desc(const char* text, int lang) {
         if (text == desc::position) return "Performans panelinin konumu.";
         if (text == desc::memory) return "Bu eşik aşılınca Vulkan kullanılmayan görüntüleri serbest bırakır. Doğrudan VRAM sınırı değildir.";
         if (text == desc::upscaler) return "Görüntüyü büyütme yöntemi. FSR 1 kenarları keskin tutar.";
-        if (text == desc::antialiasing) return "Tırtıklı kenarları yumuşatır. FXAA ince ayrıntıları biraz yumuşatabilir.";
+        if (text == desc::antialiasing) return "Tırtıklı kenarları yumuşatır. FXAA hızlıdır ancak ince ayrıntıları biraz yumuşatabilir; SMAA dokuları ve arayüzü daha keskin tutar.";
         if (text == desc::anisotropy) return "Açıyla görülen dokuları keskinleştirir. Yeniden başlatınca uygulanır.";
         if (text == desc::sharpness) return "FSR 1 keskinliğini ayarlar.";
         if (text == desc::low_vram) return "VRAM tasarrufu için çözümlenmiş dokuları sıkıştırır. Yeniden başlatınca uygulanır.";
@@ -577,7 +577,7 @@ const char* translated_desc(const char* text, int lang) {
     if (text == desc::position) return "Scegli l’angolo in cui mostrare il pannello.";
     if (text == desc::memory) return "Soglia oltre la quale Vulkan libera le immagini riutilizzabili non in uso. Non è un limite diretto della VRAM.";
     if (text == desc::upscaler) return "Scegli come ingrandire l’immagine. FSR 1 mantiene i contorni più nitidi.";
-    if (text == desc::antialiasing) return "Riduce le scalettature. FXAA può rendere meno nitidi i dettagli sottili.";
+    if (text == desc::antialiasing) return "Riduce le scalettature. FXAA è veloce ma può ammorbidire i dettagli; SMAA mantiene texture e interfaccia più nitide.";
     if (text == desc::anisotropy) return "Migliora la nitidezza delle texture viste di sbieco. Si applica al riavvio.";
     if (text == desc::sharpness) return "Regola la nitidezza di FSR 1.";
     if (text == desc::low_vram) return "Mantiene compresse le texture decodificate per ridurre la memoria video, con una lieve perdita di qualità. Si applica al riavvio.";
@@ -1210,8 +1210,8 @@ void video(MenuContext& c, const Labels& l) {
     if (rows::integer(kCommon[lang][4], &sharp, 0, 200, 5, 200 - kDefaults.fsr_sharpness, "%d%%", translated_desc(desc::sharpness, lang)))
         s.fsr_sharpness = 200 - sharp, settings_changed(true);
     rows::indent(-1);
-    const char* aa[] = {"Off", "FXAA"};
-    if (rows::choice(kCommon[lang][5], &s.antialiasing, aa, 2, kDefaults.antialiasing, translated_desc(desc::antialiasing, lang)))
+    const char* aa[] = {"Off", "FXAA", "SMAA"};
+    if (rows::choice(kCommon[lang][5], &s.antialiasing, aa, 3, kDefaults.antialiasing, translated_desc(desc::antialiasing, lang)))
         settings_changed(true);
     const char* af_names[] = {"Game default", "2x", "4x", "8x", "16x"};
     const int af_levels[] = {0, 2, 4, 8, 16};

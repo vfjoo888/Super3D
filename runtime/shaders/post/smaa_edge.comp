@@ -1,0 +1,58 @@
+#version 450
+// SMAA 1x Pass 1: Color edge detection with local contrast adaptation (Jimenez et al.).
+// Outputs (leftEdge, topEdge) in RG of an RGBA8 image.
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(push_constant) uniform Push {
+    vec2 inv_size;
+} pc;
+
+layout(set = 0, binding = 0) uniform sampler2D src;
+layout(set = 0, binding = 1, rgba8) uniform writeonly image2D dst;
+
+const float kThreshold = 0.08;
+const float kLocalContrastAdaptation = 2.0;
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(dst);
+    if (p.x >= size.x || p.y >= size.y) return;
+
+    vec2 uv = (vec2(p) + 0.5) * pc.inv_size;
+
+    vec3 c  = textureLod(src, uv, 0.0).rgb;
+    vec3 cL = textureLodOffset(src, uv, 0.0, ivec2(-1,  0)).rgb;
+    vec3 cT = textureLodOffset(src, uv, 0.0, ivec2( 0, -1)).rgb;
+
+    vec3 t = abs(c - cL);
+    float dL = max(max(t.r, t.g), t.b);
+    t = abs(c - cT);
+    float dT = max(max(t.r, t.g), t.b);
+
+    vec2 edges = step(vec2(kThreshold), vec2(dL, dT));
+    if (dot(edges, vec2(1.0)) == 0.0) {
+        imageStore(dst, p, vec4(0.0));
+        return;
+    }
+
+    vec3 cR = textureLodOffset(src, uv, 0.0, ivec2( 1,  0)).rgb;
+    vec3 cB = textureLodOffset(src, uv, 0.0, ivec2( 0,  1)).rgb;
+    t = abs(c - cR);
+    float dR = max(max(t.r, t.g), t.b);
+    t = abs(c - cB);
+    float dB = max(max(t.r, t.g), t.b);
+
+    float maxDelta = max(max(dL, dT), max(dR, dB));
+
+    vec3 cLL = textureLodOffset(src, uv, 0.0, ivec2(-2,  0)).rgb;
+    vec3 cTT = textureLodOffset(src, uv, 0.0, ivec2( 0, -2)).rgb;
+    t = abs(cL - cLL);
+    float dLL = max(max(t.r, t.g), t.b);
+    t = abs(cT - cTT);
+    float dTT = max(max(t.r, t.g), t.b);
+
+    maxDelta = max(maxDelta, max(dLL, dTT));
+    edges *= step(vec2(maxDelta), vec2(dL, dT) * kLocalContrastAdaptation);
+
+    imageStore(dst, p, vec4(edges, 0.0, 1.0));
+}

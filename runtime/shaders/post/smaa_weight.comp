@@ -1,0 +1,134 @@
+#version 450
+// SMAA 1x Pass 2: Morphological blending weight calculation (analytical area integration).
+// Searches along detected horizontal/vertical edges, classifies crossing ends (L, Z, U shapes),
+// and computes exact subpixel coverage weights (top, bottom, left, right) into RGBA8.
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(push_constant) uniform Push {
+    vec2 inv_size;
+} pc;
+
+layout(set = 0, binding = 0) uniform sampler2D edges_tex;
+layout(set = 0, binding = 1, rgba8) uniform writeonly image2D dst;
+
+const int kMaxSearch = 16;
+
+// Exact geometric area covered on the upper/lower side of a pixel at offset d1 (from left/top end)
+// and d2 (from right/bottom end) for a segment of length L = d1 + d2 + 1 with crossing flags e1, e2.
+// e1/e2 encode crossing edges at the two endpoints:
+//   bit 0 (0.5..1): crossing on negative side (top/left)
+//   bit 1 (0.5..1): crossing on positive side (bottom/right)
+// Returns vec2(area_neg, area_pos).
+vec2 compute_area(float d1, float d2, vec2 e1, vec2 e2) {
+    float len = d1 + d2 + 1.0;
+    bool n1 = e1.x > 0.5, p1 = e1.y > 0.5;
+    bool n2 = e2.x > 0.5, p2 = e2.y > 0.5;
+
+    // Crossing shape: Z-shape (opposite sides), L-shape (one side), U-shape (same side).
+    // For a linear ramp from h1 at x=0 to h2 at x=len, evaluated over [d1, d1+1]:
+    //   y(x) = h1 + (h2 - h1) * (x / len)
+    //   signed midpoint height m = h1 + (h2 - h1) * ((d1 + 0.5) / len)
+    float h1 = (n1 == p1) ? 0.0 : (n1 ? 0.5 : -0.5);
+    float h2 = (n2 == p2) ? 0.0 : (n2 ? 0.5 : -0.5);
+    if (h1 == 0.0 && h2 == 0.0) return vec2(0.0);
+
+    float x0 = d1 / len;
+    float x1 = (d1 + 1.0) / len;
+    float y0 = mix(h1, h2, x0);
+    float y1 = mix(h1, h2, x1);
+
+    // Integrate positive part (neg side) and negative part (pos side) over [0, 1].
+    vec2 area = vec2(0.0);
+    if (y0 >= 0.0 && y1 >= 0.0) {
+        area.x = 0.5 * (y0 + y1);
+    } else if (y0 <= 0.0 && y1 <= 0.0) {
+        area.y = -0.5 * (y0 + y1);
+    } else {
+        // Line crosses zero inside this pixel.
+        float t = y0 / (y0 - y1);
+        if (y0 > 0.0) {
+            area.x = 0.5 * y0 * t;
+            area.y = -0.5 * y1 * (1.0 - t);
+        } else {
+            area.y = -0.5 * y0 * t;
+            area.x = 0.5 * y1 * (1.0 - t);
+        }
+    }
+    return clamp(area, 0.0, 0.5);
+}
+
+vec2 fetch_edge(ivec2 p, ivec2 size) {
+    ivec2 c = clamp(p, ivec2(0), size - ivec2(1));
+    return texelFetch(edges_tex, c, 0).rg;
+}
+
+float search_x_left(ivec2 p, ivec2 size) {
+    int i = 0;
+    for (; i < kMaxSearch; i++) {
+        vec2 e = fetch_edge(p - ivec2(i + 1, 0), size);
+        if (e.g < 0.5) break;
+    }
+    return float(i);
+}
+
+float search_x_right(ivec2 p, ivec2 size) {
+    int i = 0;
+    for (; i < kMaxSearch; i++) {
+        vec2 e = fetch_edge(p + ivec2(i + 1, 0), size);
+        if (e.g < 0.5) break;
+    }
+    return float(i);
+}
+
+float search_y_up(ivec2 p, ivec2 size) {
+    int i = 0;
+    for (; i < kMaxSearch; i++) {
+        vec2 e = fetch_edge(p - ivec2(0, i + 1), size);
+        if (e.r < 0.5) break;
+    }
+    return float(i);
+}
+
+float search_y_down(ivec2 p, ivec2 size) {
+    int i = 0;
+    for (; i < kMaxSearch; i++) {
+        vec2 e = fetch_edge(p + ivec2(0, i + 1), size);
+        if (e.r < 0.5) break;
+    }
+    return float(i);
+}
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(dst);
+    if (p.x >= size.x || p.y >= size.y) return;
+
+    vec2 e = fetch_edge(p, size);
+    vec4 weights = vec4(0.0);
+
+    // Horizontal edge at top of pixel (e.g > 0.5): blend vertically with top/bottom neighbors.
+    if (e.g > 0.5) {
+        float dL = search_x_left(p, size);
+        float dR = search_x_right(p, size);
+        int xL = p.x - int(dL);
+        int xR = p.x + int(dR) + 1;
+        // Crossing vertical edges (r channel) at the left and right ends, above (y-1) and below (y).
+        vec2 e1 = vec2(fetch_edge(ivec2(xL, p.y - 1), size).r, fetch_edge(ivec2(xL, p.y), size).r);
+        vec2 e2 = vec2(fetch_edge(ivec2(xR, p.y - 1), size).r, fetch_edge(ivec2(xR, p.y), size).r);
+        weights.rg = compute_area(dL, dR, e1, e2);
+    }
+
+    // Vertical edge at left of pixel (e.r > 0.5): blend horizontally with left/right neighbors.
+    if (e.r > 0.5) {
+        float dU = search_y_up(p, size);
+        float dD = search_y_down(p, size);
+        int yU = p.y - int(dU);
+        int yD = p.y + int(dD) + 1;
+        // Crossing horizontal edges (g channel) at the top and bottom ends, left (x-1) and right (x).
+        vec2 e1 = vec2(fetch_edge(ivec2(p.x - 1, yU), size).g, fetch_edge(ivec2(p.x, yU), size).g);
+        vec2 e2 = vec2(fetch_edge(ivec2(p.x - 1, yD), size).g, fetch_edge(ivec2(p.x, yD), size).g);
+        weights.ba = compute_area(dU, dD, e1, e2);
+    }
+
+    imageStore(dst, p, weights);
+}

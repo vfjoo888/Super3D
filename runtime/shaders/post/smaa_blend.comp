@@ -1,0 +1,52 @@
+#version 450
+// SMAA 1x Pass 3: Neighborhood blending (Jimenez et al.).
+// Uses hardware bilinear filtering to blend along the strongest edge direction with 2 texture fetches.
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(push_constant) uniform Push {
+    vec2 inv_size;
+} pc;
+
+layout(set = 0, binding = 0) uniform sampler2D color_tex;
+layout(set = 0, binding = 1) uniform sampler2D blend_tex;
+layout(set = 0, binding = 2, rgba8) uniform writeonly image2D dst;
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(dst);
+    if (p.x >= size.x || p.y >= size.y) return;
+
+    vec2 uv = (vec2(p) + 0.5) * pc.inv_size;
+
+    // Fetch blending weights for this pixel's 4 edges:
+    //   right  = blend(p + (1,0)).a
+    //   bottom = blend(p + (0,1)).g
+    //   top    = blend(p).r
+    //   left   = blend(p).b
+    vec4 a;
+    a.x = textureLodOffset(blend_tex, uv, 0.0, ivec2(1, 0)).a;
+    a.y = textureLodOffset(blend_tex, uv, 0.0, ivec2(0, 1)).g;
+    a.wz = textureLod(blend_tex, uv, 0.0).rb;
+
+    if (dot(a, vec4(1.0)) < 1e-5) {
+        imageStore(dst, p, vec4(textureLod(color_tex, uv, 0.0).rgb, 1.0));
+        return;
+    }
+
+    bool h = max(a.x, a.z) > max(a.y, a.w);
+    vec4 blendingOffset = vec4(0.0, a.y, 0.0, a.w);
+    vec2 blendingWeight = a.yw;
+    if (h) {
+        blendingOffset = vec4(a.x, 0.0, a.z, 0.0);
+        blendingWeight = a.xz;
+    }
+    blendingWeight /= dot(blendingWeight, vec2(1.0));
+
+    vec2 uv1 = uv + blendingOffset.xy * pc.inv_size;
+    vec2 uv2 = uv - blendingOffset.zw * pc.inv_size;
+
+    vec3 color = blendingWeight.x * textureLod(color_tex, uv1, 0.0).rgb +
+                 blendingWeight.y * textureLod(color_tex, uv2, 0.0).rgb;
+
+    imageStore(dst, p, vec4(color, 1.0));
+}

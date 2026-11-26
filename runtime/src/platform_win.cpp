@@ -687,7 +687,7 @@ static bool parse_pc_settings_file(const std::filesystem::path& ini_path, PcMenu
         else if (std::sscanf(line.c_str(), "fsr_sharpness=%d", &value) == 1)
             state.fsr_sharpness = std::clamp(value, 0, 200);
         else if (std::sscanf(line.c_str(), "antialiasing=%d", &value) == 1)
-            state.antialiasing = std::clamp(value, 0, 1);
+            state.antialiasing = std::clamp(value, 0, 2);
         else if (std::sscanf(line.c_str(), "anisotropy=%d", &value) == 1)
             state.anisotropy = std::clamp(value, 0, 16);
         else if (std::sscanf(line.c_str(), "shadow_scale=%d", &value) == 1)
@@ -795,7 +795,7 @@ static void apply_loaded_pc_settings(const PcMenuState& state) {
     set_memory_limit_gb(state.memory_limit_gb);
     _putenv_s("NX_LOW_VRAM_PROFILE", state.low_vram_profile ? "1" : "0");
     nx::nvn::set_fsr(state.upscaler == 1, float(state.fsr_sharpness) / 100.0f);
-    nx::nvn::set_fxaa(state.antialiasing == 1);
+    nx::nvn::set_aa_mode(state.antialiasing);
     nx::nvn::set_anisotropy(state.anisotropy);
     nx::nvn::set_shadow_scale(state.shadow_scale);
     nx::nvn::set_vsync(state.vsync);
@@ -1071,7 +1071,7 @@ static void apply_pc_menu(const PcMenuState& state, bool persist) {
     set_memory_limit_gb(g_pc_settings.memory_limit_gb);
     _putenv_s("NX_LOW_VRAM_PROFILE", g_pc_settings.low_vram_profile ? "1" : "0");
     nx::nvn::set_fsr(g_pc_settings.upscaler == 1, float(g_pc_settings.fsr_sharpness) / 100.0f);
-    nx::nvn::set_fxaa(g_pc_settings.antialiasing == 1);
+    nx::nvn::set_aa_mode(g_pc_settings.antialiasing);
     nx::nvn::set_anisotropy(g_pc_settings.anisotropy);
     nx::nvn::set_shadow_scale(g_pc_settings.shadow_scale);
     nx::nvn::set_vsync(g_pc_settings.vsync);
