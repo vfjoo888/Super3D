@@ -63,7 +63,7 @@ float render_scale_for(const Texture& texture) {
     const int64_t ratio_width = int64_t(texture.width) * 9, ratio_height = int64_t(texture.height) * 16;
     const int64_t tol = std::max<int64_t>(16, int64_t(texture.height) / 4);
     const bool wide = std::abs(ratio_width - ratio_height) <= tol;
-    if (eligible && wide && (texture.flags & 0x8) && texture.width >= 1360) {
+    if (eligible && wide && (texture.flags & 0x8) && texture.width >= 1280) {
         scene_scale = float(target_width) / float(texture.width);
         return scene_scale;
     }

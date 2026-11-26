@@ -73,6 +73,7 @@ bool g_run_calc = true;
 float g_alpha = 1.0f;
 uint32_t g_logic_tick = 1;
 uint64_t g_last_scene = 0;
+uint64_t g_last_ticked_kit = 0;
 
 uint64_t g_prev_ns = 0;
 uint64_t g_accum_ns = 0;
@@ -356,6 +357,7 @@ void hook_proc_frame(CPU& c) {
             camera_reset();
             models_reset();
             g_last_scene = 0;
+            g_last_ticked_kit = 0;
         }
         g_run_calc = true;
         g_alpha = 1.0f;
@@ -421,10 +423,20 @@ void hook_game_system_movement(CPU& c) {
         camera_reset();
         models_reset();
         g_last_scene = scene;
+        g_last_ticked_kit = 0;
+    }
+
+    // Never run a draw-only frame on a newly created/entered scene before its first logic tick:
+    // static shadows, PrePassLightKeeper, and cameras are only initialized on the first movement tick.
+    if (!g_run_calc && kit && kit != g_last_ticked_kit) {
+        g_run_calc = true;
+        g_accum_ns = 0;
+        g_alpha = 1.0f;
     }
 
     if (g_run_calc) {
         g_orig_game_system_movement(c);
+        if (kit) g_last_ticked_kit = kit;
         if (high_fps_interp_enabled() && kit) {
             camera_capture(kit);
             camera_apply(kit, g_alpha);
