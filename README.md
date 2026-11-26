@@ -6,6 +6,17 @@ A static recompilation of **Super Mario 3D World + Bowser's Fury** (`010028600EB
 
 ---
 
+## Project Status & Goal
+
+- **Current Status:** Boots in-game at **60 FPS**, with some remaining stutters and graphical bugs.
+- **Goal:** A **fully playable PC experience**. Pre-built releases will be published once that milestone is reached.
+
+## Built On
+
+Super3D is built on the **ToTK recomp** framework and my other Switch static recompilation project, [**SuperWonders**](https://github.com/vfjoo888/SuperWonders).
+
+---
+
 ## Features
 
 - **Native Static Recompilation** — Translates the Switch `main` and `sdk` executables into native x86-64 code (`NX_GAME=sm3dw`).
