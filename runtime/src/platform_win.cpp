@@ -805,10 +805,23 @@ static void apply_loaded_pc_settings(const PcMenuState& state) {
     nx::nvn::set_hdr_sdr_eotf(state.hdr_sdr_eotf);
     nx::nvn::set_hdr_grading(state.hdr_exposure, state.hdr_contrast, state.hdr_shadows, state.hdr_saturation,
                              state.hdr_highlight_saturation);
-    const uint32_t nw = !state.fullscreen && state.width >= 640 ? uint32_t(state.width)
-                                                               : uint32_t(GetSystemMetrics(SM_CXSCREEN));
-    const uint32_t nh = !state.fullscreen && state.height >= 360 ? uint32_t(state.height)
-                                                                : uint32_t(GetSystemMetrics(SM_CYSCREEN));
+    uint32_t nw = uint32_t(GetSystemMetrics(SM_CXSCREEN));
+    uint32_t nh = uint32_t(GetSystemMetrics(SM_CYSCREEN));
+    {
+        DEVMODEW dm{};
+        dm.dmSize = sizeof(dm);
+        const wchar_t* dev = nullptr;
+        MONITORINFOEXW mi{};
+        mi.cbSize = sizeof(mi);
+        if (g_window) {
+            if (HMONITOR mon = MonitorFromWindow(g_window, MONITOR_DEFAULTTOPRIMARY); mon && GetMonitorInfoW(mon, &mi))
+                dev = mi.szDevice;
+        }
+        if (EnumDisplaySettingsW(dev, ENUM_CURRENT_SETTINGS, &dm) && dm.dmPelsWidth >= 640 && dm.dmPelsHeight >= 360) {
+            nw = dm.dmPelsWidth;
+            nh = dm.dmPelsHeight;
+        }
+    }
     nx::set_native_render_size(nw, nh);
 }
 

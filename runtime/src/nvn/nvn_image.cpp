@@ -43,19 +43,26 @@ int shadow_scale_multiplier() {
 float render_scale_for(const Texture& texture) {
     const uint32_t target_width = internal_resolution_target_width();
     const bool render_target = (texture.flags & 0x8) || texture.render_target.load(std::memory_order_relaxed);
-    const bool eligible = render_target && texture.levels <= 1 && texture.target == 1 && texture.width >= 16 &&
+    uint32_t bw = 1, bh = 1, bpp = 4;
+    format_block(texture.format, bw, bh, bpp);
+    const bool uncompressed = bw == 1 && bh == 1;
+    // Allow mipmapped and 2D_ARRAY render targets too (SM3DW creates its 1920x1080 G-buffer Amb target as 2D_ARRAY
+    // and uses mipmapped bloom/Hi-Z targets such as 960x540 and 720x408; leaving any attachment at 1x clips the pass).
+    const bool target_2d = texture.target == 1 || texture.target == 4;
+    const bool eligible = render_target && uncompressed && target_2d && texture.width >= 16 &&
                           texture.height >= 9;
     // Wonder's D24 shadow maps (NVN format 0x32) are square and track the guest's dynamic scene size
     // at about 16/15 of its width. Keep their host images and depth-only viewports at the same scale
     // as the scene (times any user shadow map multiplier); leaving them at 1.0 while scaling 16:9 targets misaligns shadows.
-    const bool shadow_depth = eligible && (texture.flags & 0x8) && texture.format == 0x32 &&
+    const bool shadow_depth = eligible && texture.levels <= 1 && (texture.flags & 0x8) && texture.format == 0x32 &&
                               texture.width == texture.height && texture.width >= 1360;
     const float shadow_mult = float(shadow_scale_multiplier());
     if (!target_width) return shadow_depth ? shadow_mult : 1.0f;  // Original / dynamic
     static float scene_scale = 0.0f;  // the last full-size game target determines scale for its smaller post passes
     if (scene_scale == 0.0f) scene_scale = float(target_width) / 1920.0f;
-    const uint64_t ratio_width = uint64_t(texture.width) * 9, ratio_height = uint64_t(texture.height) * 16;
-    const bool wide = ratio_width + 16 >= ratio_height && ratio_width <= ratio_height + 16;
+    const int64_t ratio_width = int64_t(texture.width) * 9, ratio_height = int64_t(texture.height) * 16;
+    const int64_t tol = std::max<int64_t>(16, int64_t(texture.height) / 4);
+    const bool wide = std::abs(ratio_width - ratio_height) <= tol;
     if (eligible && wide && (texture.flags & 0x8) && texture.width >= 1360) {
         scene_scale = float(target_width) / float(texture.width);
         return scene_scale;
