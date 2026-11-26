@@ -8,17 +8,16 @@ Nothing owned by Nintendo may be committed or attached to an issue or pull reque
 
 - no copies of the game in any form (game containers, modules, RomFS or ExeFS contents)
 - no console credentials or firmware
-- no generated code from the game (`private/wonder/gen`), no translated shaders (`private/wonder/spirv`), no
+- no generated code from the game, no translated shaders, no
   APK or data zip built from a dump (they contain the game's code and data)
 - no game assets: textures, models, music, text, fonts
 
-Everything derived from the game stays in `private/` (gitignored). Pull requests that include such files cannot be
+Everything derived from the game stays in (gitignored). Pull requests that include such files cannot be
 merged. Screenshots and short clips in bug reports are fine.
 
 ## Branches
 
 - `main` is the stable branch.
-- `dev` is where work lands first. Open pull requests against `dev`; `dev` is merged into `main` when it is tested.
 
 ## Reporting bugs
 
