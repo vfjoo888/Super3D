@@ -423,7 +423,7 @@ void hook_game_system_movement(CPU& c) {
         g_last_scene = scene;
     }
 
-    if (g_run_calc || !kit) {
+    if (g_run_calc) {
         g_orig_game_system_movement(c);
         if (high_fps_interp_enabled() && kit) {
             camera_capture(kit);
@@ -431,6 +431,8 @@ void hook_game_system_movement(CPU& c) {
         }
         return;
     }
+
+    if (!kit) return;
 
     // Draw-only frame: apply interpolated camera, then run preDrawGraphics (so DynamicTextureAllocator
     // frees stay balanced) while preserving PrePassLightKeeper->impl+0x174c. Skip updateGraphics
