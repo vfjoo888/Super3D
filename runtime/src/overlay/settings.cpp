@@ -57,7 +57,7 @@ bool load_settings(const std::string& path, Settings& s) {
         else if (std::sscanf(l, "fullscreen=%d", &v) == 1) s.fullscreen = v != 0;
         else if (std::sscanf(l, "always_on_top=%d", &v) == 1) s.always_on_top = v != 0;
         else if (std::sscanf(l, "language=%d", &v) == 1) s.language = std::clamp(v, 0, 12);
-        else if (std::sscanf(l, "theme=%d", &v) == 1) s.theme = std::clamp(v, 0, 4);
+        else if (std::sscanf(l, "theme=%d", &v) == 1) s.theme = std::clamp(v, 0, 15);
         else if (std::sscanf(l, "game_language=%d", &v) == 1) s.game_language = std::clamp(v, 0, 17);
         else if (std::sscanf(l, "game_language_version=%d", &v) == 1) game_language_version = v;
         else if (std::sscanf(l, "memory_limit_gb=%d", &v) == 1) s.memory_limit_gb = std::clamp(v, 2, 32);

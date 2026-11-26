@@ -186,10 +186,10 @@ void draw_metrics(float height) {
             const ImVec2 p = ImGui::GetCursorScreenPos(), gs(300 * k, 64 * k);
             ImGui::Dummy(gs);
             ImDrawList* dl = ImGui::GetWindowDrawList();
-            dl->AddRectFilled(p, ImVec2(p.x + gs.x, p.y + gs.y), IM_COL32(255, 255, 255, 12), 6 * k);
+            dl->AddRectFilled(p, ImVec2(p.x + gs.x, p.y + gs.y), ui::tint(12), 6 * k);
             const auto y_of = [&](float ms) { return p.y + gs.y - std::clamp(ms / 50.0f, 0.0f, 1.0f) * gs.y; };
             for (float ms : {16.7f, 33.3f})
-                dl->AddLine(ImVec2(p.x, y_of(ms)), ImVec2(p.x + gs.x, y_of(ms)), IM_COL32(255, 255, 255, 36), 1.0f);
+                dl->AddLine(ImVec2(p.x, y_of(ms)), ImVec2(p.x + gs.x, y_of(ms)), ui::tint(36), 1.0f);
             const float dx = gs.x / float(kHistory - 1);
             const float x0 = p.x + gs.x - dx * float(count - 1);
             std::array<ImVec2, kHistory> pts;

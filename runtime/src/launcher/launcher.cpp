@@ -637,6 +637,13 @@ float g_k = 1;
 
 void backdrop(ImDrawList* dl, ImVec2 ds) {
     const ui::Theme& th = ui::theme();
+    if (th.light) {  // sky, clouds and hills, with a white rounded card holding the whole launcher
+        const float k = std::clamp(ds.y / 1080.0f, 0.5f, 3.0f), inset = 26 * k;
+        ui::draw_sky(dl, ds, k);
+        ui::draw_card(dl, {inset, inset}, {ds.x - inset, ds.y - inset}, 34 * k, k, th.panel,
+                      ui::fade(th.accent2, 0.9f));
+        return;
+    }
     dl->AddRectFilledMultiColor({0, 0}, ds, th.back_top, th.back_top, th.back_mid, th.back_mid);
     // Subtle ambient accent glow in the upper right, kept stationary for a clean minimalist look.
     const float gx = ds.x * 0.78f, gy = ds.y * 0.16f, r = ds.y * 0.65f;
@@ -673,7 +680,7 @@ void progress_card(ImDrawList* dl, ImVec2 p0, ImVec2 p1) {
     ImFont* bf = ui::body();
     const float tfs = 42 * k, sfs = 25 * k;
     dl->AddRectFilled(p0, p1, th.card, 14 * k);
-    dl->AddRect(p0, p1, ui::fade(IM_COL32(255, 255, 255, 22)), 14 * k, 0, std::max(1.0f, k));
+    dl->AddRect(p0, p1, ui::fade(ui::tint(22)), 14 * k, 0, std::max(1.0f, k));
     const char* title = "Setting up your game";
     const ImVec2 ts = tf->CalcTextSizeA(tfs, FLT_MAX, 0, title);
     dl->AddText(tf, tfs, {(p0.x + p1.x - ts.x) * 0.5f, p0.y + 40 * k}, th.text, title);
@@ -1889,16 +1896,18 @@ void screen(float w, float h) {
     const float margin = 52 * k, nav_w = std::clamp(w * 0.22f, 260 * k, 320 * k);
 
     // Header: brand on the left, status pill + theme toggle button on the right, separated by a clean 1px rule.
+    // (Light theme: on a red scalloped band, as the settings menu's.)
+    if (th.light) ui::draw_band(dl, {26 * k, 26 * k}, w - 52 * k, 106 * k, 34 * k, k, th.accent);
     ImGui::SetCursorPos({margin, margin * 0.68f});
     ImGui::BeginGroup();
     ImGui::PushFont(ui::title());
     ImGui::SetWindowFontScale(1.05f);
-    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(th.text));
+    ImGui::PushStyleColor(ImGuiCol_Text, th.light ? ImVec4(1, 1, 1, 1) : ImGui::ColorConvertU32ToFloat4(th.text));
     ImGui::TextUnformatted(is_sm3dw() ? "SUPER3D" : "SUPERWONDERS");
     ImGui::PopStyleColor();
     ImGui::SetWindowFontScale(1.0f);
     ImGui::PopFont();
-    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(th.text_dim));
+    ImGui::PushStyleColor(ImGuiCol_Text, th.light ? ImVec4(1, 1, 1, 0.9f) : ImGui::ColorConvertU32ToFloat4(th.text_dim));
     ImGui::SetWindowFontScale(0.86f);
     ImGui::TextUnformatted(is_sm3dw() ? (g->config_mode ? "3D World PC Port  ·  Configuration" : "3D World PC Port")
                                       : (g->config_mode ? "Super Mario Bros. Wonder  ·  Configuration" : "Super Mario Bros. Wonder"));
@@ -1922,17 +1931,17 @@ void screen(float w, float h) {
         dl->AddRectFilled({status_x, right_y}, {status_x + status_w, right_y + pill_h},
                           ui::fade(th.card, 0.75f), pill_h * 0.5f);
         dl->AddRect({status_x, right_y}, {status_x + status_w, right_y + pill_h},
-                    ui::fade(IM_COL32(255, 255, 255, 22)), pill_h * 0.5f, 0, std::max(1.0f, k));
+                    ui::fade(ui::tint(22)), pill_h * 0.5f, 0, std::max(1.0f, k));
         dl->AddCircleFilled({status_x + 14 * k + 5 * k, right_y + pill_h * 0.5f}, 5 * k, sc);
         dl->AddText(ui::body(), btn_fs, {status_x + 14 * k + 10 * k + 8 * k, right_y + (pill_h - sts.y) * 0.5f},
                     ui::fade(th.text_dim), st);
         ImGui::SetCursorPos({theme_x, right_y});
-        if (ui::theme_button(k)) overlay::set_theme_index(ui::theme_index());
+        if (ui::theme_button(k, th.light)) overlay::set_theme_index(ui::theme_index());
     }
 
     const float divider_y = header_bottom + 18 * k;
-    dl->AddLine({margin, divider_y}, {w - margin, divider_y}, ui::fade(IM_COL32(255, 255, 255, 18)), std::max(1.0f, k));
-    const float top = divider_y + 24 * k;
+    if (!th.light) dl->AddLine({margin, divider_y}, {w - margin, divider_y}, ui::fade(ui::tint(18)), std::max(1.0f, k));
+    const float top = divider_y + (th.light ? 40 : 24) * k;
 
     // Sidebar navigation: clean Sentence/Title Case labels with left accent indicator, matching the settings rows.
     const bool busy = g->job.running || g->demo_progress;
@@ -1947,7 +1956,7 @@ void screen(float w, float h) {
         const float row_h = 54 * k;
         const float a = ui::eased(ImGui::GetID("hl"), sel ? 1.0f : 0.0f, 16.0f);
         if (a > 0.01f) {
-            dl->AddRectFilled(at, {at.x + nav_w, at.y + row_h}, ui::fade(IM_COL32(255, 255, 255, 18), a), 10 * k);
+            dl->AddRectFilled(at, {at.x + nav_w, at.y + row_h}, ui::fade(ui::tint(18), a), th.light ? row_h * 0.5f : 10 * k);
             const float bh = row_h * 0.52f;
             dl->AddRectFilled({at.x, at.y + (row_h - bh) * 0.5f}, {at.x + 3.5f * k, at.y + (row_h + bh) * 0.5f},
                               ui::fade(th.accent, a), 2 * k);
@@ -1955,8 +1964,8 @@ void screen(float w, float h) {
         const bool disabled = busy && i != g->page;
         if (disabled) ImGui::BeginDisabled();
         ImGui::PushStyleColor(ImGuiCol_Header, IM_COL32(0, 0, 0, 0));
-        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ui::fade(IM_COL32(255, 255, 255, 10)));
-        ImGui::PushStyleColor(ImGuiCol_HeaderActive, ui::fade(IM_COL32(255, 255, 255, 16)));
+        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ui::fade(ui::tint(10)));
+        ImGui::PushStyleColor(ImGuiCol_HeaderActive, ui::fade(ui::tint(16)));
         char label[64];
         std::snprintf(label, sizeof label, "   %s", lt(static_cast<LauncherText>(LtPlay + i)));
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(sel ? th.text : th.text_dim));
@@ -1974,7 +1983,7 @@ void screen(float w, float h) {
         }
         if (focused && !menu_open) {
             const ImVec2 b0 = ImGui::GetItemRectMin(), b1 = ImGui::GetItemRectMax();
-            dl->AddRect(b0, b1, ui::fade(th.accent, 0.7f), 10 * k, 0, std::max(1.0f, 1.4f * k));
+            dl->AddRect(b0, b1, ui::fade(th.accent, 0.7f), th.light ? (b1.y - b0.y) * 0.5f : 10 * k, 0, std::max(1.0f, 1.4f * k));
         }
         ImGui::PopStyleColor();
         ImGui::PopStyleColor(3);

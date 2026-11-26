@@ -80,14 +80,15 @@ int row(const char* label, const std::string& value, bool changed, const char* d
     // the highlight eases in (and out) over about a tenth of a second
     const float t = ui::eased(id + 1, hov || foc ? 1.0f : 0.0f, 22.0f);
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    const float r = 10 * g_k, pad = 18 * g_k, fs = ImGui::GetFontSize();
+    const bool light = ui::theme().light;
+    const float r = light ? h * 0.5f : 10 * g_k, pad = (light ? 26 : 18) * g_k, fs = ImGui::GetFontSize();
     const ImVec2 q(p.x + w, p.y + h);
-    const ImU32 base_bg = ui::mix(IM_COL32(255, 255, 255, 7), IM_COL32(255, 255, 255, 22), t);
+    const ImU32 base_bg = ui::mix(ui::tint(7), ui::tint(22), t);
     dl->AddRectFilled(p, q, ui::fade(base_bg), r);
-    const ImU32 border = ui::mix(IM_COL32(255, 255, 255, off ? 10 : 18),
-                                 off ? IM_COL32(255, 255, 255, 36) : ui::theme().accent, t * 0.75f);
-    dl->AddRect(p, q, ui::fade(border), r, 0, std::max(1.0f, g_k));
-    if (t > 0.02f && !off) {
+    const ImU32 border = ui::mix(ui::tint(off ? 10 : 18),
+                                 off ? ui::tint(36) : ui::theme().accent, t * 0.75f);
+    dl->AddRect(p, q, ui::fade(border), r, 0, std::max(1.0f, (light ? 2.4f : 1.0f) * g_k));
+    if (t > 0.02f && !off && !light) {
         const float bar_h = h * (0.45f + 0.15f * t);
         const float by0 = p.y + (h - bar_h) * 0.5f;
         dl->AddRectFilled(ImVec2(p.x, by0), ImVec2(p.x + 3.5f * g_k, by0 + bar_h),
@@ -166,7 +167,7 @@ void section(const char* title) {
     const ImVec2 p = ImGui::GetCursorScreenPos();
     const float w = ImGui::GetContentRegionAvail().x;
     ImGui::GetWindowDrawList()->AddLine(ImVec2(p.x, p.y - 2 * g_k), ImVec2(p.x + w, p.y - 2 * g_k),
-                                        ui::fade(IM_COL32(255, 255, 255, 18)), std::max(1.0f, g_k));
+                                        ui::fade(ui::tint(18)), std::max(1.0f, g_k));
     ImGui::Dummy(ImVec2(0, 8 * g_k));
 }
 
@@ -254,8 +255,9 @@ void end() {
     const float gap = 24 * g_k;
     const ImVec2 card_p0(p.x + gap, p.y), card_p1(p.x + avail.x, p.y + avail.y);
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(card_p0, card_p1, ui::fade(ui::theme().card, 0.55f), 12 * g_k);
-    dl->AddRect(card_p0, card_p1, ui::fade(IM_COL32(255, 255, 255, 18)), 12 * g_k, 0, std::max(1.0f, g_k));
+    const float card_r = (ui::theme().light ? 24 : 12) * g_k;
+    dl->AddRectFilled(card_p0, card_p1, ui::fade(ui::theme().card, 0.55f), card_r);
+    dl->AddRect(card_p0, card_p1, ui::fade(ui::tint(18)), card_r, 0, std::max(1.0f, (ui::theme().light ? 2.0f : 1.0f) * g_k));
     ImGui::SetCursorScreenPos(card_p0);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(24 * g_k, 22 * g_k));
     ImGui::BeginChild("##desc", ImVec2(0, avail.y), ImGuiChildFlags_AlwaysUseWindowPadding, ImGuiWindowFlags_NoNav);

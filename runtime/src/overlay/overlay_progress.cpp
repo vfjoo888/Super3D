@@ -52,6 +52,9 @@ void draw_progress(float height) {
     // the backdrop: deep violet, lighter toward the middle, with a slow glow drifting across
     const ui::Theme& th = ui::theme();
     const ImU32 top = ui::fade(th.back_top, a), mid = ui::fade(th.back_mid, a);
+    if (th.light) {
+        ui::draw_sky(dl, ds, k, a);
+    } else {
     dl->AddRectFilledMultiColor({0, 0}, {ds.x, ds.y * 0.5f}, top, top, mid, mid);
     dl->AddRectFilledMultiColor({0, ds.y * 0.5f}, ds, mid, mid, top, top);
     {
@@ -72,6 +75,7 @@ void draw_progress(float height) {
             dl->PrimWriteIdx(ImDrawIdx(base + 1 + i));
             dl->PrimWriteIdx(ImDrawIdx(base + 1 + (i + 1) % kSeg));
         }
+    }
     }
     const uint64_t done = g_done, total = g_total;
     static float shown = 0;

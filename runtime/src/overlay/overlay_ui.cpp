@@ -142,9 +142,104 @@ ImU32 mix(ImU32 a, ImU32 b, float t) {
 }
 
 namespace {
+bool theme_is_light();
+}
 
-// Modern minimalist palettes: neutral dark surfaces for high contrast and clean readability, paired with refined accents.
+ImU32 tint(int alpha) {
+    if (!theme_is_light()) return IM_COL32(255, 255, 255, std::clamp(alpha, 0, 255));
+    return IM_COL32(30, 52, 120, std::clamp(int(alpha * 1.6f), 0, 255));
+}
+
+void draw_card(ImDrawList* dl, ImVec2 p0, ImVec2 p1, float rounding, float k, ImU32 fill, ImU32 outline, float alpha) {
+    for (int i = 2; i >= 0; --i) {  // a soft shadow: three growing, faint layers
+        const float e = float(i) * 5 * k;
+        dl->AddRectFilled({p0.x - e, p0.y + 6 * k - e}, {p1.x + e, p1.y + 10 * k + e},
+                          fade(IM_COL32(20, 50, 110, 24), alpha), rounding + e);
+    }
+    dl->AddRectFilled(p0, p1, fill, rounding);
+    dl->AddRect(p0, p1, outline, rounding, 0, std::max(1.0f, 3.0f * k));
+}
+
+void draw_band(ImDrawList* dl, ImVec2 p0, float width, float height, float rounding, float k, ImU32 colour) {
+    dl->AddRectFilled(p0, {p0.x + width, p0.y + height}, colour, rounding, ImDrawFlags_RoundCornersTop);
+    const float r = 10 * k;  // a row of round scallops along the lower edge
+    for (float x = p0.x + rounding; x <= p0.x + width - rounding; x += r * 1.9f)
+        dl->AddCircleFilled({x, p0.y + height}, r, colour, 16);
+    dl->AddRectFilled({p0.x + rounding, p0.y + 7 * k}, {p0.x + width - rounding, p0.y + 11 * k},
+                      mix(colour, IM_COL32(255, 255, 255, 255), 0.28f), 2 * k);  // (a soft highlight)
+}
+
+void draw_sky(ImDrawList* dl, ImVec2 ds, float k, float alpha) {
+    const Theme& th = theme();
+    const float t = float(ImGui::GetTime());
+    const ImU32 top = fade(th.back_top, alpha), bottom = fade(th.back_mid, alpha);
+    dl->AddRectFilledMultiColor({0, 0}, ds, top, top, bottom, bottom);
+    {  // a soft sun: a lit centre fading to clear
+        const float gx = ds.x * 0.84f, gy = ds.y * 0.17f, r = ds.y * 0.42f;
+        const ImU32 in = fade(IM_COL32(255, 248, 205, 150), alpha), out = in & ~IM_COL32_A_MASK;
+        constexpr int kSeg = 48;
+        dl->PrimReserve(kSeg * 3, kSeg + 1);
+        const ImVec2 uv = ImGui::GetFontTexUvWhitePixel();
+        const ImDrawIdx base = ImDrawIdx(dl->_VtxCurrentIdx);
+        dl->PrimWriteVtx({gx, gy}, uv, in);
+        for (int i = 0; i < kSeg; ++i) {
+            const float a = float(i) / kSeg * 6.2831853f;
+            dl->PrimWriteVtx({gx + std::cos(a) * r, gy + std::sin(a) * r}, uv, out);
+        }
+        for (int i = 0; i < kSeg; ++i) {
+            dl->PrimWriteIdx(base);
+            dl->PrimWriteIdx(ImDrawIdx(base + 1 + i));
+            dl->PrimWriteIdx(ImDrawIdx(base + 1 + (i + 1) % kSeg));
+        }
+    }
+    {  // a faint dot pattern, in staggered rows
+        const float sp = 38 * k, rr = 2.2f * k;
+        const ImU32 dot = fade(IM_COL32(255, 255, 255, 44), alpha);
+        int row = 0;
+        for (float y = sp * 0.5f; y < ds.y; y += sp, ++row)
+            for (float x = (row & 1 ? sp : sp * 0.5f); x < ds.x; x += sp) dl->AddCircleFilled({x, y}, rr, dot, 6);
+    }
+    {  // clouds drifting right, each from overlapping round puffs on a flat base
+        struct Cloud { float y, scale, speed, phase; };
+        static const Cloud clouds[] = {{0.14f, 1.0f, 14, 0.05f}, {0.30f, 0.7f, 9, 0.45f}, {0.52f, 1.25f, 11, 0.72f},
+                                       {0.08f, 0.6f, 7, 0.90f}, {0.42f, 0.8f, 16, 0.20f}};
+        const ImU32 white = fade(IM_COL32(255, 255, 255, 205), alpha);
+        const float span = ds.x + 600 * k;
+        for (const Cloud& c : clouds) {
+            const float cx = std::fmod(c.phase * span + t * c.speed * k, span) - 300 * k, cy = ds.y * c.y;
+            const float w = 220 * k * c.scale;
+            dl->AddRectFilled({cx - w * 0.5f, cy}, {cx + w * 0.5f, cy + w * 0.22f}, white, w * 0.11f);
+            dl->AddCircleFilled({cx - w * 0.22f, cy + w * 0.02f}, w * 0.17f, white, 20);
+            dl->AddCircleFilled({cx, cy - w * 0.08f}, w * 0.23f, white, 24);
+            dl->AddCircleFilled({cx + w * 0.24f, cy + w * 0.02f}, w * 0.16f, white, 20);
+        }
+    }
+    {  // two rolling green hills along the bottom
+        auto hill = [&](float base, float amp, float freq, float phase, ImU32 body, ImU32 edge) {
+            const float step = 10 * k;
+            float px = 0, py = ds.y * base + amp * std::sin(phase);
+            for (float x = step; x <= ds.x + step; x += step) {
+                const float y = ds.y * base + amp * std::sin(x * freq + phase);
+                dl->AddQuadFilled({px, py}, {x, y}, {x, ds.y}, {px, ds.y}, body);
+                dl->AddLine({px, py}, {x, y}, edge, std::max(1.0f, 4 * k));
+                px = x, py = y;
+            }
+        };
+        hill(0.89f, 22 * k, 0.0042f / k, 0.6f, fade(IM_COL32(126, 214, 118, 255), alpha), fade(IM_COL32(168, 232, 146, 255), alpha));
+        hill(0.94f, 16 * k, 0.0061f / k, 2.4f, fade(IM_COL32(72, 182, 86, 255), alpha), fade(IM_COL32(112, 208, 104, 255), alpha));
+    }
+}
+
+namespace {
+
+// Palettes. The first, "Super Sky", is the house look: bright and playful (sky blue, a cheerful red, sunny yellow
+// touches, white cards, chunky rounded shapes), drawn entirely from shapes and colours of our own, with no pictures
+// from any game. The others are modern minimalist dark themes: neutral surfaces with refined accents.
 const Theme kThemes[] = {
+    {"Super Sky", IM_COL32(230, 40, 48, 255), IM_COL32(0, 150, 235, 255), IM_COL32(26, 38, 82, 255),
+     IM_COL32(86, 100, 146, 255), IM_COL32(158, 168, 198, 255), IM_COL32(252, 253, 255, 246),
+     IM_COL32(232, 242, 255, 252), IM_COL32(86, 176, 255, 255), IM_COL32(184, 226, 255, 255),
+     IM_COL32(24, 168, 92, 255), IM_COL32(232, 146, 0, 255), IM_COL32(224, 36, 48, 255), true},
 #if defined(NX_GAME_NAME)
     {"Midnight Gold", IM_COL32(248, 192, 48, 255), IM_COL32(255, 224, 112, 255), IM_COL32(244, 247, 252, 255),
      IM_COL32(176, 186, 208, 255), IM_COL32(108, 120, 148, 255), IM_COL32(15, 22, 42, 242), IM_COL32(22, 32, 60, 252),
@@ -174,6 +269,8 @@ const Theme kThemes[] = {
 };
 std::atomic<int> g_theme_index{0};
 
+bool theme_is_light() { return theme().light; }
+
 }  // namespace
 
 const Theme& theme() {
@@ -186,7 +283,7 @@ const char* theme_name(int index) { return kThemes[std::clamp(index, 0, int(std:
 void set_theme(int index) { g_theme_index.store(std::clamp(index, 0, int(std::size(kThemes)) - 1), std::memory_order_relaxed); }
 void cycle_theme() { set_theme((theme_index() + 1) % theme_count()); }
 
-bool theme_button(float k) {
+bool theme_button(float k, bool on_accent) {
     const Theme& th = theme();
     ImFont* f = body();
     const float fs = ImGui::GetFontSize() * 0.84f;
@@ -205,11 +302,19 @@ bool theme_button(float k) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     const ImVec2 q(p.x + w, p.y + h);
     const float r = h * 0.5f;
-    dl->AddRectFilled(p, q, fade(mix(IM_COL32(255, 255, 255, 14), IM_COL32(255, 255, 255, 28), t)), r);
-    dl->AddRect(p, q, fade(mix(IM_COL32(255, 255, 255, 32), th.accent, t)), r, 0, std::max(1.0f, 1.2f * k));
-    dl->AddCircleFilled(ImVec2(p.x + pad_x + dot_r, p.y + h * 0.5f), dot_r, fade(th.accent));
-    dl->AddText(f, fs, ImVec2(p.x + pad_x + dot_r * 2 + gap, p.y + (h - ts.y) * 0.5f),
-                fade(mix(th.text_dim, th.text, t)), th.name);
+    const ImU32 white = IM_COL32(255, 255, 255, 255);
+    if (on_accent) {  // over the coloured header band: white on translucent white
+        dl->AddRectFilled(p, q, fade(mix(IM_COL32(255, 255, 255, 40), IM_COL32(255, 255, 255, 70), t)), r);
+        dl->AddRect(p, q, fade(mix(IM_COL32(255, 255, 255, 120), white, t)), r, 0, std::max(1.0f, 1.6f * k));
+        dl->AddCircleFilled(ImVec2(p.x + pad_x + dot_r, p.y + h * 0.5f), dot_r, fade(white));
+        dl->AddText(f, fs, ImVec2(p.x + pad_x + dot_r * 2 + gap, p.y + (h - ts.y) * 0.5f), fade(white), th.name);
+    } else {
+        dl->AddRectFilled(p, q, fade(mix(tint(14), tint(28), t)), r);
+        dl->AddRect(p, q, fade(mix(tint(32), th.accent, t)), r, 0, std::max(1.0f, 1.2f * k));
+        dl->AddCircleFilled(ImVec2(p.x + pad_x + dot_r, p.y + h * 0.5f), dot_r, fade(th.accent));
+        dl->AddText(f, fs, ImVec2(p.x + pad_x + dot_r * 2 + gap, p.y + (h - ts.y) * 0.5f),
+                    fade(mix(th.text_dim, th.text, t)), th.name);
+    }
     if (clicked) {
         cycle_theme();
         return true;
@@ -241,13 +346,18 @@ void apply_style(float height) {
     s.WindowPadding = {32, 26}, s.FramePadding = {14, 8}, s.ItemSpacing = {14, 10}, s.ItemInnerSpacing = {10, 8};
     s.WindowBorderSize = 1, s.PopupBorderSize = 1, s.ChildBorderSize = 0, s.TabBorderSize = 0;
     s.ScrollbarSize = 8, s.TabBarBorderSize = 1;
+    if (t.light) {  // chunkier and rounder: pill-like controls, a thick outline around windows and popups
+        s.WindowRounding = 30, s.FrameRounding = 16, s.GrabRounding = 12, s.TabRounding = 16, s.ChildRounding = 20;
+        s.PopupRounding = 20, s.ScrollbarRounding = 10;
+        s.WindowBorderSize = 3, s.PopupBorderSize = 3, s.ScrollbarSize = 10;
+    }
     s.DisabledAlpha = 0.42f;
     ImVec4* c = s.Colors;
     const ImVec4 accent = v4(t.accent), lift = v4(mix(t.panel, t.text, 0.08f), 1), lift2 = v4(mix(t.panel, t.text, 0.14f), 1);
     c[ImGuiCol_WindowBg] = v4(t.panel);
     c[ImGuiCol_ChildBg] = ImVec4(0, 0, 0, 0);
     c[ImGuiCol_PopupBg] = v4(t.card, 0.98f);
-    c[ImGuiCol_Border] = ImVec4(1, 1, 1, 0.09f);
+    c[ImGuiCol_Border] = t.light ? v4(t.accent2, 0.9f) : ImVec4(1, 1, 1, 0.09f);
     c[ImGuiCol_Text] = v4(t.text);
     c[ImGuiCol_TextDisabled] = v4(t.text_off);
     c[ImGuiCol_FrameBg] = v4(mix(t.panel, t.text, 0.05f), 1);
@@ -255,16 +365,16 @@ void apply_style(float height) {
     c[ImGuiCol_FrameBgActive] = c[ImGuiCol_ButtonActive] = c[ImGuiCol_HeaderHovered] = c[ImGuiCol_HeaderActive] = lift2;
     c[ImGuiCol_Button] = v4(mix(t.panel, t.text, 0.06f), 1);
     c[ImGuiCol_Tab] = ImVec4(0, 0, 0, 0);
-    c[ImGuiCol_TabHovered] = ImVec4(1, 1, 1, 0.06f);
-    c[ImGuiCol_TabSelected] = ImVec4(1, 1, 1, 0.05f);
+    c[ImGuiCol_TabHovered] = v4(tint(15));
+    c[ImGuiCol_TabSelected] = v4(tint(13));
     c[ImGuiCol_TabSelectedOverline] = ImVec4(0, 0, 0, 0);  // (the menu draws its own sliding underline)
     c[ImGuiCol_TabDimmed] = c[ImGuiCol_Tab], c[ImGuiCol_TabDimmedSelected] = c[ImGuiCol_TabSelected];
     c[ImGuiCol_CheckMark] = c[ImGuiCol_SliderGrabActive] = c[ImGuiCol_NavCursor] = c[ImGuiCol_PlotLines] = accent;
     c[ImGuiCol_SliderGrab] = c[ImGuiCol_ScrollbarGrabActive] = v4(t.accent, 0.7f);
-    c[ImGuiCol_Separator] = ImVec4(1, 1, 1, 0.08f);
+    c[ImGuiCol_Separator] = v4(tint(20));
     c[ImGuiCol_ScrollbarBg] = ImVec4(0, 0, 0, 0);
-    c[ImGuiCol_ScrollbarGrab] = ImVec4(1, 1, 1, 0.14f);
-    c[ImGuiCol_ScrollbarGrabHovered] = ImVec4(1, 1, 1, 0.24f);
+    c[ImGuiCol_ScrollbarGrab] = v4(tint(36));
+    c[ImGuiCol_ScrollbarGrabHovered] = v4(tint(60));
     c[ImGuiCol_TitleBg] = c[ImGuiCol_TitleBgActive] = c[ImGuiCol_WindowBg];
     s.ScaleAllSizes(k);
 }
@@ -536,7 +646,7 @@ void draw_notices(float height) {
 void progress_bar(ImDrawList* dl, ImVec2 a, ImVec2 b, float frac, float alpha) {
     const Theme& th = theme();
     const float h = b.y - a.y, r = h * 0.5f;
-    dl->AddRectFilled(a, b, fade(IM_COL32(255, 255, 255, 25), alpha), r);
+    dl->AddRectFilled(a, b, fade(tint(25), alpha), r);
     float fx = a.x + (b.x - a.x) * std::clamp(frac, 0.0f, 1.0f);
     if (fx <= a.x + 1) return;
     fx = std::max(fx, a.x + h);  // (at least its two round ends)

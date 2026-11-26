@@ -2254,10 +2254,12 @@ bool close_button(float k) {
     ImGui::PopStyleColor();
     const bool hot = ImGui::IsItemHovered() || (ImGui::IsItemFocused() && ImGui::GetCurrentContext()->NavCursorVisible);
     const float t = ui::eased(ImGui::GetItemID(), hot ? 1.0f : 0.0f, 22.0f);
-    const ImU32 col = ui::fade(ui::mix(ui::theme().text_dim, ui::theme().accent, t));
+    const bool light = ui::theme().light;
+    const ImU32 col = light ? ui::fade(ui::mix(IM_COL32(255, 255, 255, 215), IM_COL32(255, 255, 255, 255), t))
+                            : ui::fade(ui::mix(ui::theme().text_dim, ui::theme().accent, t));
     const float m = bx * 0.3f, w = (2.4f + 0.6f * t) * 1.5f * k;
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(p, ImVec2(p.x + bx, p.y + bx), ui::fade(IM_COL32(255, 255, 255, 20), t), 8 * k);
+    dl->AddRectFilled(p, ImVec2(p.x + bx, p.y + bx), ui::fade(light ? IM_COL32(255, 255, 255, 56) : ui::tint(20), t), light ? bx * 0.5f : 8 * k);
     dl->AddLine(ImVec2(p.x + m, p.y + m), ImVec2(p.x + bx - m, p.y + bx - m), col, w);
     dl->AddLine(ImVec2(p.x + bx - m, p.y + m), ImVec2(p.x + m, p.y + bx - m), col, w);
     return close;
@@ -2286,9 +2288,14 @@ void draw_menu(MenuContext& c) {
         return;
     }
     ImDrawList* wdl = ImGui::GetWindowDrawList();
+    const bool light = ui::theme().light;
+    if (light) {  // the red header band with scalloped edge; the title and the buttons sit on it in white
+        const ImVec2 wp0 = ImGui::GetWindowPos();
+        ui::draw_band(wdl, wp0, ImGui::GetWindowWidth(), 84 * k, 30 * k, k, ui::theme().accent);
+    }
     ImGui::PushFont(ui::title());
     ImGui::SetWindowFontScale(0.70f);
-    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(ui::theme().text));
+    ImGui::PushStyleColor(ImGuiCol_Text, light ? ImVec4(1, 1, 1, 1) : ImGui::ColorConvertU32ToFloat4(ui::theme().text));
     ImGui::TextUnformatted(l.title);
     ImGui::PopStyleColor();
     ImGui::SetWindowFontScale(1.0f);
@@ -2301,13 +2308,13 @@ void draw_menu(MenuContext& c) {
         const float theme_w = 28 * k + 11 * k + 8 * k + ts.x;
         const float right_x = ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x - close_w - 12 * k - theme_w;
         ImGui::SameLine(right_x);
-        if (ui::theme_button(k)) {
+        if (ui::theme_button(k, light)) {
             s.theme = ui::theme_index();
             settings_changed(true);
         }
     }
     if (close_button(k)) c.open = false;
-    ImGui::Dummy(ImVec2(0, 4 * k));
+    ImGui::Dummy(ImVec2(0, (light ? 22 : 4) * k));
 
     const char* names[kTabs] = {l.video, l.audio, l.controls, l.overlay, l.system, "Network", "Speedrun",
                                 kDebugLabels[std::clamp(s.language, 0, 12)].tab};
@@ -2391,7 +2398,7 @@ void draw_menu(MenuContext& c) {
     const ImVec2 wp = ImGui::GetWindowPos();
     const float fy = wp.y + ImGui::GetWindowHeight() - footer * 0.5f - 4 * k;
     wdl->AddLine(ImVec2(wp.x + 28 * k, fy - footer * 0.5f + 4 * k),
-                 ImVec2(wp.x + ImGui::GetWindowWidth() - 28 * k, fy - footer * 0.5f + 4 * k), ui::fade(IM_COL32(255, 255, 255, 26)));
+                 ImVec2(wp.x + ImGui::GetWindowWidth() - 28 * k, fy - footer * 0.5f + 4 * k), ui::fade(ui::tint(26)));
     const ui::Hint list[] = {{"A", "Select"}, {"B", "Back"}, {"L", ""}, {"R", "Tab"}, {"\xe2\x80\x93 +", "Close"},
                              {nullptr, "F1 / Esc"}};
     ui::hints(wdl, wp.x + ImGui::GetWindowWidth() * 0.5f, fy, 30 * k, list, int(sizeof list / sizeof list[0]));

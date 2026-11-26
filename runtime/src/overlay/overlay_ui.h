@@ -20,6 +20,7 @@ struct Theme {
     ImU32 card;        // notices, the compile card
     ImU32 back_top, back_mid;  // the compile screen's backdrop
     ImU32 good, warn, bad;     // the metrics panel's numbers
+    bool light;                // a bright theme: dark ink on light surfaces (hand-drawn overlays use tint())
 };
 const Theme& theme();  // current active theme (overlay_ui.cpp)
 int theme_count();
@@ -28,11 +29,22 @@ const char* theme_name(int index);
 void set_theme(int index);
 void cycle_theme();
 // Minimalist pill button showing the current accent dot and theme name; returns true when clicked/activated.
-bool theme_button(float k);
+// `on_accent`: drawn over the accent-coloured header band (white text and outline).
+bool theme_button(float k, bool on_accent = false);
 
 // A colour with its alpha times `a` (0..1) and the style's Alpha (the menu's fade), for hand-drawn shapes.
 ImU32 fade(ImU32 c, float a = 1.0f);
 ImU32 mix(ImU32 a, ImU32 b, float t);
+// The theme's overlay ink at `alpha` (0..255): white on dark themes, deep blue (a bit stronger) on light ones. For
+// faint fills, outlines and rules that must read on either kind of surface.
+ImU32 tint(int alpha);
+// A friendly procedural backdrop for light themes: sky gradient, a soft sun, a faint dot pattern, drifting clouds and
+// two rolling green hills. Drawn from shapes only (no images). `size` is the screen, `k` the 1080 p scale.
+void draw_sky(ImDrawList* dl, ImVec2 size, float k, float alpha = 1.0f);
+// A rounded card with a soft drop shadow and a thick light outline, the building block of the light look.
+void draw_card(ImDrawList* dl, ImVec2 p0, ImVec2 p1, float rounding, float k, ImU32 fill, ImU32 outline, float alpha = 1.0f);
+// A header band along the top of a card, in `colour`, with a row of round scallops along its lower edge.
+void draw_band(ImDrawList* dl, ImVec2 p0, float width, float height, float rounding, float k, ImU32 colour);
 
 // The style, for an image `height` pixels tall (sizes are Savage Wind's at 1080 p, scaled). Cheap when unchanged.
 void apply_style(float height);
