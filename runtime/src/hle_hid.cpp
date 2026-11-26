@@ -15,6 +15,7 @@
 #include <nx/runtime.h>
 
 #include "ipc.h"
+#include "overlay/overlay.h"
 #include "platform.h"
 #include "play.h"
 
@@ -70,6 +71,8 @@ PadState read(unsigned player = 0) {
 #if (defined(__linux__) && !defined(__ANDROID__)) || defined(_WIN32)
     else read_pad_player(player, p);
 #endif  // NX_INPUT_FRAMES / NX_INPUT_REPLAY / NX_INPUT_RECORD (play.cpp)
+    // While the in-game menu is open, only the menu receives pad input; the game sees neutral state.
+    if (overlay::is_open() || overlay::wants_keyboard()) p = {};
     // Stick directions as buttons, like the hid sysmodule reports them.
     constexpr int32_t t = kStickMax / 2;
     if (p.lx < -t) p.buttons |= kStickLLeft;

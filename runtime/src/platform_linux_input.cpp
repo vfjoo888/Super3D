@@ -130,7 +130,38 @@ void apply_settings(const overlay::Settings& s, bool persist) {
     g_controller_preset = std::clamp(s.controller_preset, 0, 1);
     for (size_t h = 0; h < overlay::kHotkeyCount; ++h)
         if (s.hotkey_bindings[h] > 0) g_hotkey_bindings[h] = s.hotkey_bindings[h];
-    if (s.fullscreen != before.fullscreen || s.width != before.width || s.height != before.height ||
+    if (s.monitor != before.monitor || s.fullscreen != before.fullscreen || s.width != before.width ||
+        s.height != before.height || s.always_on_top != before.always_on_top)
+        post_to_main([s] {
+            if (!g_window) return;
+            int count = 0;
+            SDL_DisplayID* ids = SDL_GetDisplays(&count);
+            SDL_Rect bounds{};
+            bool has_bounds = false;
+            if (ids && count > 0) {
+                const int idx = std::clamp(s.monitor, 0, count - 1);
+                has_bounds = SDL_GetDisplayBounds(ids[idx], &bounds);
+                if (const SDL_DisplayMode* dm = SDL_GetCurrentDisplayMode(ids[idx]); dm && dm->w > 0 && dm->h > 0)
+                    nx::set_native_render_size(uint32_t(dm->w), uint32_t(dm->h));
+            }
+            if (ids) SDL_free(ids);
+            if (s.fullscreen) {
+                if (has_bounds) {
+                    SDL_SetWindowFullscreen(g_window, false);
+                    SDL_SetWindowPosition(g_window, bounds.x, bounds.y);
+                }
+                SDL_SetWindowFullscreen(g_window, true);
+            } else {
+                SDL_SetWindowFullscreen(g_window, false);
+                SDL_SetWindowSize(g_window, s.width, s.height);
+                if (has_bounds)
+                    SDL_SetWindowPosition(g_window, bounds.x + (bounds.w - s.width) / 2,
+                                          bounds.y + (bounds.h - s.height) / 2);
+            }
+            SDL_SetWindowAlwaysOnTop(g_window, s.always_on_top);
+        });
+    if (false)
+        post_to_main([s] {
         s.always_on_top != before.always_on_top)
         post_to_main([s] {
             if (!g_window) return;
@@ -253,7 +284,7 @@ bool player_connected(unsigned player) {
 void read_pad_player(unsigned player, PadState& p) {
     if (player == 0) { read_pad(p); return; }
     std::lock_guard lk(g_pad_lock);
-    if (player < g_players.size() && !overlay::wants_keyboard()) p = g_players[player];
+    if (player < g_players.size() && !overlay::is_open() && !overlay::wants_keyboard()) p = g_players[player];
 }
 ButtonPromptConfig button_prompt_config() {
     std::array<int, 4> styles{};
@@ -335,6 +366,24 @@ void load_player_settings() {
     apply_settings(s, false);
     overlay::Host host;
     host.apply = apply_settings;
+    host.monitors = []() -> std::vector<std::string> {
+        std::vector<std::string> out;
+        int count = 0;
+        if (SDL_DisplayID* ids = SDL_GetDisplays(&count)) {
+            for (int i = 0; i < count; ++i) {
+                const char* name = SDL_GetDisplayName(ids[i]);
+                const SDL_DisplayMode* dm = SDL_GetCurrentDisplayMode(ids[i]);
+                char buf[256];
+                if (dm && dm->w > 0 && dm->h > 0)
+                    std::snprintf(buf, sizeof buf, "Monitor %d: %s (%dx%d)", i + 1, name && *name ? name : "Display", dm->w, dm->h);
+                else
+                    std::snprintf(buf, sizeof buf, "Monitor %d: %s", i + 1, name && *name ? name : "Display");
+                out.emplace_back(buf);
+            }
+            SDL_free(ids);
+        }
+        return out;
+    };
     host.key_name = key_name;
     for (size_t a = 0; a < overlay::kControlCount; ++a) host.default_keyboard_bindings[a] = keys[a];
     for (size_t h = 0; h < overlay::kHotkeyCount; ++h) host.default_hotkey_bindings[h] = hotkeys[h];

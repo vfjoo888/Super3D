@@ -25,6 +25,8 @@ struct Host {
     const char* (*key_name)(int key) = nullptr;
     std::array<int, kControlCount> default_keyboard_bindings{};
     std::array<int, kHotkeyCount> default_hotkey_bindings{};
+    // Enumerates available display monitors (e.g. "Monitor 1: LG ULTRAGEAR (1920x1080)").
+    std::vector<std::string> (*monitors)() = nullptr;
     bool can_always_on_top = true;  // the window system supports it (not Wayland)
     bool can_resize = true;         // the window can be given a size
 };

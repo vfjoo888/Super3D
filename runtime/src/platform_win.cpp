@@ -417,7 +417,7 @@ static void metrics_reposition();
 
 static overlay::Settings to_overlay(const PcMenuState& s) {
     overlay::Settings o;
-    o.width = s.width, o.height = s.height, o.aspect_ratio = s.aspect_ratio, o.internal_resolution = s.internal_resolution, o.volume = s.volume;
+    o.width = s.width, o.height = s.height, o.aspect_ratio = s.aspect_ratio, o.monitor = s.monitor, o.internal_resolution = s.internal_resolution, o.volume = s.volume;
     o.audio_mode = s.audio_mode, o.stereo_separation = s.stereo_separation;
     o.language = s.language, o.theme = s.theme, o.game_language = s.game_language, o.memory_limit_gb = s.memory_limit_gb;
     o.player_devices = s.player_devices, o.pad_bindings = s.pad_bindings, o.pad_custom_mask = s.pad_custom_mask, o.pad_presets = s.pad_presets;
@@ -446,7 +446,7 @@ static overlay::Settings to_overlay(const PcMenuState& s) {
 
 static PcMenuState from_overlay(const overlay::Settings& o) {
     PcMenuState s = g_pc_settings;
-    s.width = o.width, s.height = o.height, s.aspect_ratio = o.aspect_ratio, s.internal_resolution = o.internal_resolution, s.volume = o.volume;
+    s.width = o.width, s.height = o.height, s.aspect_ratio = o.aspect_ratio, s.monitor = o.monitor, s.internal_resolution = o.internal_resolution, s.volume = o.volume;
     s.audio_mode = o.audio_mode, s.stereo_separation = o.stereo_separation;
     s.language = o.language, s.theme = o.theme, s.game_language = o.game_language, s.memory_limit_gb = o.memory_limit_gb;
     s.player_devices = o.player_devices, s.pad_bindings = o.pad_bindings, s.pad_custom_mask = o.pad_custom_mask, s.pad_presets = o.pad_presets;
@@ -569,6 +569,7 @@ static void save_pc_settings() {
     file << "width=" << g_pc_settings.width << "\nheight=" << g_pc_settings.height << "\nvolume=" << g_pc_settings.volume
          << "\naudio_mode=" << g_pc_settings.audio_mode << "\nstereo_separation=" << g_pc_settings.stereo_separation
          << "\naspect_ratio=" << std::max(0, g_pc_settings.aspect_ratio)
+         << "\nmonitor=" << std::max(0, g_pc_settings.monitor)
          << "\ninternal_resolution=" << g_pc_settings.internal_resolution << "\nmuted=" << g_pc_settings.muted
          << "\nmute_in_background=" << g_pc_settings.mute_in_background << "\npause_in_background=" << g_pc_settings.pause_in_background << "\nfullscreen=" << g_pc_settings.fullscreen
          << "\nalways_on_top=" << g_pc_settings.always_on_top << "\nlanguage=" << g_pc_settings.language
@@ -624,6 +625,18 @@ static void save_pc_settings() {
         file << "hotkey_" << i << '=' << g_pc_settings.hotkey_bindings[i] << '\n';
 }
 
+struct WinMonitorInfo {
+    HMONITOR hmon = nullptr;
+    RECT rc{0, 0, 1920, 1080};
+    RECT work{0, 0, 1920, 1080};
+    int width = 1920;
+    int height = 1080;
+    bool primary = true;
+    std::wstring gdi_name;
+    std::string friendly_name;
+};
+static WinMonitorInfo target_win_monitor(int index);
+
 static bool parse_pc_settings_file(const std::filesystem::path& ini_path, PcMenuState& state) {
     std::ifstream file(ini_path);
     if (!file) return false;
@@ -634,6 +647,7 @@ static bool parse_pc_settings_file(const std::filesystem::path& ini_path, PcMenu
         if (std::sscanf(line.c_str(), "width=%d", &value) == 1 && value >= 640 && value <= 7680) state.width = value;
         else if (std::sscanf(line.c_str(), "height=%d", &value) == 1 && value >= 360 && value <= 4320) state.height = value;
         else if (std::sscanf(line.c_str(), "aspect_ratio=%d", &value) == 1) state.aspect_ratio = std::clamp(value, 0, 2);
+        else if (std::sscanf(line.c_str(), "monitor=%d", &value) == 1) state.monitor = std::max(0, value);
         else if (std::sscanf(line.c_str(), "internal_resolution=%d", &value) == 1) state.internal_resolution = std::clamp(value, 0, 9);
         else if (std::sscanf(line.c_str(), "volume=%d", &value) == 1) state.volume = std::clamp(value, 0, 200);
         else if (std::sscanf(line.c_str(), "audio_mode=%d", &value) == 1) state.audio_mode = std::clamp(value, 0, 2);
@@ -756,8 +770,9 @@ static bool parse_pc_settings_file(const std::filesystem::path& ini_path, PcMenu
             state.height = std::max(360, ratio == 1 ? state.width * 27 / 64 :
                                           ratio == 2 ? state.width * 9 / 32 :
                                                        state.width * 9 / 16);
-        const int disp_w = state.fullscreen ? GetSystemMetrics(SM_CXSCREEN) : state.width;
-        const int disp_h = state.fullscreen ? GetSystemMetrics(SM_CYSCREEN) : state.height;
+        const WinMonitorInfo init_mon = target_win_monitor(state.monitor);
+        const int disp_w = state.fullscreen ? init_mon.width : state.width;
+        const int disp_h = state.fullscreen ? init_mon.height : state.height;
         const double disp_aspect = disp_h > 0 ? double(disp_w) / double(disp_h) : 0.0;
         char uw_res[32];
         if (ratio && disp_w > 0 && disp_h > 0 && std::fabs(disp_aspect - target_aspect) / target_aspect <= 0.10)
@@ -785,6 +800,116 @@ static void ensure_dpi_aware() {
     (void)done;
 }
 
+static std::string win_narrow_utf8(const wchar_t* ws) {
+    if (!ws || !*ws) return {};
+    int n = WideCharToMultiByte(CP_UTF8, 0, ws, -1, nullptr, 0, nullptr, nullptr);
+    if (n <= 1) return {};
+    std::string out(size_t(n - 1), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, ws, -1, out.data(), n, nullptr, nullptr);
+    return out;
+}
+
+static std::vector<WinMonitorInfo> enumerate_win_monitors() {
+    ensure_dpi_aware();
+    std::vector<std::pair<std::wstring, std::string>> edid_names;
+    UINT32 path_count = 0, mode_count = 0;
+    if (GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &path_count, &mode_count) == ERROR_SUCCESS && path_count > 0) {
+        std::vector<DISPLAYCONFIG_PATH_INFO> paths(path_count);
+        std::vector<DISPLAYCONFIG_MODE_INFO> modes(mode_count);
+        if (QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &path_count, paths.data(), &mode_count, modes.data(), nullptr) == ERROR_SUCCESS) {
+            for (UINT32 i = 0; i < path_count; ++i) {
+                DISPLAYCONFIG_SOURCE_DEVICE_NAME src{};
+                src.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
+                src.header.size = sizeof src;
+                src.header.adapterId = paths[i].sourceInfo.adapterId;
+                src.header.id = paths[i].sourceInfo.id;
+                DISPLAYCONFIG_TARGET_DEVICE_NAME dst{};
+                dst.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME;
+                dst.header.size = sizeof dst;
+                dst.header.adapterId = paths[i].targetInfo.adapterId;
+                dst.header.id = paths[i].targetInfo.id;
+                if (DisplayConfigGetDeviceInfo(&src.header) == ERROR_SUCCESS &&
+                    DisplayConfigGetDeviceInfo(&dst.header) == ERROR_SUCCESS &&
+                    dst.monitorFriendlyDeviceName[0]) {
+                    edid_names.emplace_back(src.viewGdiDeviceName, win_narrow_utf8(dst.monitorFriendlyDeviceName));
+                }
+            }
+        }
+    }
+
+    std::vector<WinMonitorInfo> list;
+    EnumDisplayMonitors(nullptr, nullptr, [](HMONITOR hm, HDC, LPRECT, LPARAM lp) -> BOOL {
+        auto* out = reinterpret_cast<std::vector<WinMonitorInfo>*>(lp);
+        MONITORINFOEXW mi{};
+        mi.cbSize = sizeof mi;
+        if (!GetMonitorInfoW(hm, &mi)) return TRUE;
+        WinMonitorInfo info;
+        info.hmon = hm;
+        info.rc = mi.rcMonitor;
+        info.work = mi.rcWork;
+        info.primary = (mi.dwFlags & MONITORINFOF_PRIMARY) != 0;
+        info.gdi_name = mi.szDevice;
+        DEVMODEW dm{};
+        dm.dmSize = sizeof dm;
+        if (EnumDisplaySettingsW(mi.szDevice, ENUM_CURRENT_SETTINGS, &dm) && dm.dmPelsWidth > 0 && dm.dmPelsHeight > 0) {
+            info.width = int(dm.dmPelsWidth);
+            info.height = int(dm.dmPelsHeight);
+        } else {
+            info.width = std::max(1, int(mi.rcMonitor.right - mi.rcMonitor.left));
+            info.height = std::max(1, int(mi.rcMonitor.bottom - mi.rcMonitor.top));
+        }
+        out->push_back(std::move(info));
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(&list));
+
+    for (auto& info : list) {
+        for (const auto& [gdi, fname] : edid_names) {
+            if (gdi == info.gdi_name) { info.friendly_name = fname; break; }
+        }
+        if (info.friendly_name.empty()) {
+            DISPLAY_DEVICEW dd{};
+            dd.cb = sizeof dd;
+            if (EnumDisplayDevicesW(info.gdi_name.c_str(), 0, &dd, 0) && dd.DeviceString[0])
+                info.friendly_name = win_narrow_utf8(dd.DeviceString);
+        }
+        if (info.friendly_name.empty()) info.friendly_name = win_narrow_utf8(info.gdi_name.c_str());
+        if (info.friendly_name.empty()) info.friendly_name = "Display";
+    }
+    std::sort(list.begin(), list.end(), [](const WinMonitorInfo& a, const WinMonitorInfo& b) {
+        if (a.primary != b.primary) return a.primary > b.primary;
+        if (a.rc.left != b.rc.left) return a.rc.left < b.rc.left;
+        return a.rc.top < b.rc.top;
+    });
+    if (list.empty()) {
+        WinMonitorInfo fallback;
+        fallback.width = std::max(640, GetSystemMetrics(SM_CXSCREEN));
+        fallback.height = std::max(360, GetSystemMetrics(SM_CYSCREEN));
+        fallback.rc = {0, 0, fallback.width, fallback.height};
+        fallback.work = fallback.rc;
+        fallback.friendly_name = "Primary Display";
+        list.push_back(std::move(fallback));
+    }
+    return list;
+}
+
+static WinMonitorInfo target_win_monitor(int index) {
+    auto list = enumerate_win_monitors();
+    const int idx = std::clamp(index, 0, int(list.size()) - 1);
+    return list[size_t(idx)];
+}
+
+static std::vector<std::string> overlay_monitors() {
+    auto list = enumerate_win_monitors();
+    std::vector<std::string> labels;
+    labels.reserve(list.size());
+    for (size_t i = 0; i < list.size(); ++i) {
+        char buf[256];
+        std::snprintf(buf, sizeof buf, "Monitor %zu: %s (%dx%d)", i + 1, list[i].friendly_name.c_str(), list[i].width, list[i].height);
+        labels.emplace_back(buf);
+    }
+    return labels;
+}
+
 static void apply_loaded_pc_settings(const PcMenuState& state) {
     ensure_dpi_aware();
     nx::set_internal_resolution_preset(state.internal_resolution);
@@ -805,8 +930,10 @@ static void apply_loaded_pc_settings(const PcMenuState& state) {
     nx::nvn::set_hdr_sdr_eotf(state.hdr_sdr_eotf);
     nx::nvn::set_hdr_grading(state.hdr_exposure, state.hdr_contrast, state.hdr_shadows, state.hdr_saturation,
                              state.hdr_highlight_saturation);
-    uint32_t nw = uint32_t(GetSystemMetrics(SM_CXSCREEN));
-    uint32_t nh = uint32_t(GetSystemMetrics(SM_CYSCREEN));
+    const WinMonitorInfo init_mon = target_win_monitor(state.monitor);
+    uint32_t nw = uint32_t(init_mon.width);
+    uint32_t nh = uint32_t(init_mon.height);
+    if (false) {
     {
         DEVMODEW dm{};
         dm.dmSize = sizeof(dm);
@@ -822,7 +949,7 @@ static void apply_loaded_pc_settings(const PcMenuState& state) {
             nh = dm.dmPelsHeight;
         }
     }
-    nx::set_native_render_size(nw, nh);
+    } nx::set_native_render_size(nw, nh);
 }
 
 static void load_pc_settings() {
@@ -882,7 +1009,7 @@ static void resize_window_client(HWND h, int width, int height) {
     const int outer_w = r.right - r.left, outer_h = r.bottom - r.top;
     const int x = current.left + ((current.right - current.left) - outer_w) / 2;
     const int y = current.top + ((current.bottom - current.top) - outer_h) / 2;
-    SetWindowPos(h, nullptr, std::max(0, x), std::max(0, y), outer_w, outer_h, SWP_NOZORDER | SWP_NOACTIVATE);
+    SetWindowPos(h, nullptr, x, y, outer_w, outer_h, SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 static int metrics_overlay_height(bool graph, int rows) { return 42 + rows * 23 + (graph ? 92 : 0); }
@@ -1048,6 +1175,7 @@ static void metrics_reposition() {
 }
 
 static void apply_pc_menu(const PcMenuState& state, bool persist) {
+    const bool monitor_changed = state.monitor != g_pc_settings.monitor;
     const bool size_changed = state.width != g_pc_settings.width || state.height != g_pc_settings.height;
     const bool topmost_changed = state.always_on_top != g_pc_settings.always_on_top;
     g_pc_settings = state;
@@ -1057,6 +1185,7 @@ static void apply_pc_menu(const PcMenuState& state, bool persist) {
     g_pc_settings.audio_mode = std::clamp(g_pc_settings.audio_mode, 0, 2);
     g_pc_settings.stereo_separation = std::clamp(g_pc_settings.stereo_separation, 0, 100);
     g_pc_settings.internal_resolution = std::clamp(g_pc_settings.internal_resolution, 0, 9);
+    g_pc_settings.monitor = std::max(0, g_pc_settings.monitor);
     g_pc_settings.language = std::clamp(g_pc_settings.language, 0, 12);
     g_pc_settings.game_language = std::clamp(g_pc_settings.game_language, 0, 17);
     g_pc_settings.memory_limit_gb = std::clamp(g_pc_settings.memory_limit_gb, 2, 32);
@@ -1081,7 +1210,32 @@ static void apply_pc_menu(const PcMenuState& state, bool persist) {
     nx::nvn::set_hdr_sdr_eotf(g_pc_settings.hdr_sdr_eotf);
     nx::nvn::set_hdr_grading(g_pc_settings.hdr_exposure, g_pc_settings.hdr_contrast, g_pc_settings.hdr_shadows,
                              g_pc_settings.hdr_saturation, g_pc_settings.hdr_highlight_saturation);
+    const WinMonitorInfo target_mon = target_win_monitor(g_pc_settings.monitor);
+    nx::set_native_render_size(uint32_t(target_mon.width), uint32_t(target_mon.height));
     if (g_fullscreen != g_pc_settings.fullscreen) toggle_fullscreen(g_window);
+    else if (monitor_changed && g_window) {
+        if (g_fullscreen) {
+            RECT r{0, 0, g_pc_settings.width, g_pc_settings.height};
+            AdjustWindowRectEx(&r, kWindowed, FALSE, 0);
+            const int ow = r.right - r.left, oh = r.bottom - r.top;
+            const int wx = target_mon.work.left + ((target_mon.work.right - target_mon.work.left) - ow) / 2;
+            const int wy = target_mon.work.top + ((target_mon.work.bottom - target_mon.work.top) - oh) / 2;
+            g_placement.length = sizeof g_placement;
+            g_placement.rcNormalPosition = {wx, wy, wx + ow, wy + oh};
+            SetWindowPos(g_window, g_pc_settings.always_on_top ? HWND_TOPMOST : HWND_NOTOPMOST,
+                         target_mon.rc.left, target_mon.rc.top,
+                         target_mon.rc.right - target_mon.rc.left,
+                         target_mon.rc.bottom - target_mon.rc.top, SWP_FRAMECHANGED | SWP_NOACTIVATE);
+        } else {
+            RECT r{0, 0, g_pc_settings.width, g_pc_settings.height};
+            AdjustWindowRectEx(&r, DWORD(GetWindowLongPtrW(g_window, GWL_STYLE)), FALSE,
+                               DWORD(GetWindowLongPtrW(g_window, GWL_EXSTYLE)));
+            const int ow = r.right - r.left, oh = r.bottom - r.top;
+            const int wx = target_mon.work.left + ((target_mon.work.right - target_mon.work.left) - ow) / 2;
+            const int wy = target_mon.work.top + ((target_mon.work.bottom - target_mon.work.top) - oh) / 2;
+            SetWindowPos(g_window, nullptr, wx, wy, ow, oh, SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+    }
     else if (size_changed && !g_fullscreen) resize_window_client(g_window, g_pc_settings.width, g_pc_settings.height);
     if (topmost_changed && g_window)
         SetWindowPos(g_window, g_pc_settings.always_on_top ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
@@ -1098,8 +1252,12 @@ static void toggle_fullscreen(HWND h) {
         GetWindowPlacement(h, &g_placement);
         GetMonitorInfoW(MonitorFromWindow(h, MONITOR_DEFAULTTOPRIMARY), &mi);
         SetWindowLongW(h, GWL_STYLE, WS_POPUP | WS_VISIBLE);
-        SetWindowPos(h, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right - mi.rcMonitor.left,
-                     mi.rcMonitor.bottom - mi.rcMonitor.top, SWP_FRAMECHANGED);
+        const WinMonitorInfo mon = target_win_monitor(g_pc_settings.monitor);
+        const RECT& mrc = mon.rc;
+        SetWindowLongW(h, GWL_STYLE, WS_POPUP | WS_VISIBLE);
+        SetWindowPos(h, HWND_TOP, mrc.left, mrc.top, mrc.right - mrc.left,
+                     mrc.bottom - mrc.top, SWP_FRAMECHANGED);
+        // (target monitor rect applied above)
     } else {
         SetWindowLongW(h, GWL_STYLE, kWindowed);
         SetWindowPlacement(h, &g_placement);
@@ -1273,17 +1431,19 @@ static void window_thread(std::atomic<bool>* ready) {
     // The render resolution's aspect (NX_RESOLUTION, default 16:9), about 80% of the screen height, centred.
     unsigned rw = 16, rh = 9;
     if (const char* r = std::getenv("NX_RESOLUTION")) std::sscanf(r, "%ux%u", &rw, &rh);
-    int sh = GetSystemMetrics(SM_CYSCREEN);
+    const WinMonitorInfo init_mon = target_win_monitor(g_pc_settings.monitor);
+    int sh = init_mon.height;
     int ch = std::max(540, sh * 8 / 10), cw = int(int64_t(ch) * rw / std::max(1u, rh));
     if (g_pc_settings.width > 0 && g_pc_settings.height > 0) cw = g_pc_settings.width, ch = g_pc_settings.height;
     RECT r{0, 0, cw, ch};
     AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
     int w = r.right - r.left, h = r.bottom - r.top;
-    int x = (GetSystemMetrics(SM_CXSCREEN) - w) / 2, y = (sh - h) / 2;
+    int x = init_mon.work.left + ((init_mon.work.right - init_mon.work.left) - w) / 2;
+    int y = init_mon.work.top + ((init_mon.work.bottom - init_mon.work.top) - h) / 2;
     // NX_HEADLESS: created hidden (the surface still needs a window), never brought to the front.
     const DWORD style = headless() ? (kWindowed & ~WS_VISIBLE) : kWindowed;
     g_window = CreateWindowW(wc.lpszClassName, (widen(nx::game::kInfo.title) + L" (Switch recomp)  -  F11: fullscreen").c_str(), style,
-                             std::max(0, x), std::max(0, y), w, h, nullptr, nullptr, wc.hInstance, nullptr);
+                             x, y, w, h, nullptr, nullptr, wc.hInstance, nullptr);
     const char* fullscreen_env = std::getenv("NX_FULLSCREEN");
     // RecompLauncher's Big Picture mode (RECOMPLAUNCHER_MODE=bigpicture: a controller on the couch) starts full screen
     const char* rl_mode = std::getenv("RECOMPLAUNCHER_MODE");
@@ -1300,6 +1460,7 @@ static void window_thread(std::atomic<bool>* ready) {
     if (overlay::enabled()) {
         overlay::Host host;
         host.apply = overlay_apply;
+        host.monitors = overlay_monitors;
         host.key_name = overlay_key_name;
         host.default_keyboard_bindings = PcMenuState{}.keyboard_bindings;
         host.default_hotkey_bindings = PcMenuState{}.hotkey_bindings;
@@ -1377,8 +1538,10 @@ void window_size(uint32_t& w, uint32_t& h) {
     // Game hooks can ask for the output size before nnMain creates the HWND. Use the size the
     // PC menu loaded from pc-settings.ini so game-side camera setup starts with the right aspect.
     if (g_pc_settings.fullscreen) {
-        w = uint32_t(GetSystemMetrics(SM_CXSCREEN));
-        h = uint32_t(GetSystemMetrics(SM_CYSCREEN));
+        const WinMonitorInfo mon = target_win_monitor(g_pc_settings.monitor);
+        w = uint32_t(mon.width);
+        h = uint32_t(mon.height);
+        // (monitor height applied above)
     } else if (g_pc_settings.width > 0 && g_pc_settings.height > 0) {
         w = uint32_t(g_pc_settings.width);
         h = uint32_t(g_pc_settings.height);
@@ -1989,7 +2152,7 @@ void read_pad_player(unsigned player, PadState& p) {
         input_script(p);
         if (overlay::enabled()) overlay::filter_pad(p);
         if (pc_menu_open()) p = {};
-    } else if (overlay::wants_keyboard() || pc_menu_open()) p = {};
+    } else if (overlay::is_open() || overlay::wants_keyboard() || pc_menu_open()) p = {};
 }
 ButtonPromptConfig button_prompt_config() {
     const PlayerInputs inputs = sample_players();

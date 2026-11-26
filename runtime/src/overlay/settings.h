@@ -28,6 +28,7 @@ enum Physical : int {
 struct Settings {
     int width = 1280, height = 720;
     int aspect_ratio = 0;  // 0 original, 1 21:9, 2 32:9
+    int monitor = 0;       // 0..N-1 display monitor index
     int internal_resolution = 0;  // svc_am.cpp presets: 0 original/dynamic, 1..5 720p..2160p, 6 native, 7 540p, 8 480p, 9 360p
     int volume = 100;
     int audio_mode = 0;         // 0 Stereo, 1 Mono, 2 5.1 Surround (PCM)

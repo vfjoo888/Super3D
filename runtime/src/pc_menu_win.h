@@ -36,6 +36,7 @@ struct PcMenuState {
     int width = 0;
     int height = 0;
     int aspect_ratio = 0;  // 0 original, 1 21:9, 2 32:9
+    int monitor = 0;       // 0..N-1 display monitor index
     int internal_resolution = 0;
     int volume = 100;
     int audio_mode = 0;

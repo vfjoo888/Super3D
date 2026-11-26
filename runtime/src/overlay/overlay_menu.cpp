@@ -1182,6 +1182,38 @@ void video(MenuContext& c, const Labels& l) {
         s.height = kWindowSizesByAspect[aspect_idx][size][1],
         settings_changed(true);
     if (rows::toggle(l.fullscreen, &s.fullscreen, kDefaults.fullscreen, translated_desc(desc::fullscreen, lang))) settings_changed(true);
+    if (c.host.monitors) {
+        static constexpr const char* kMonitorLabel[13] = {
+            "Monitor", "Monitor", "Bildschirm", "Écran", "Monitor", "모니터", "モニター",
+            "الشاشة", "Монитор", "Monitör", "Beeldscherm", "显示器", "顯示器",
+        };
+        static constexpr const char* kMonitorDesc[13] = {
+            "Which display to show the game on.",
+            "Schermo su cui mostrare il gioco.",
+            "Auf welchem Bildschirm das Spiel angezeigt wird.",
+            "Écran sur lequel afficher le jeu.",
+            "Pantalla en la que se muestra el juego.",
+            "게임을 표시할 모니터를 선택합니다.",
+            "ゲームを表示するモニターを選択します。",
+            "الشاشة التي تُعرض عليها اللعبة.",
+            "Экран, на котором отображается игра.",
+            "Oyunun gösterileceği ekran.",
+            "Het beeldscherm waarop het spel wordt weergegeven.",
+            "选择显示游戏的显示器。",
+            "選擇顯示遊戲的顯示器。",
+        };
+        std::vector<std::string> mons = c.host.monitors();
+        if (!mons.empty()) {
+            std::vector<const char*> mon_ptrs;
+            mon_ptrs.reserve(mons.size());
+            for (const auto& m : mons) mon_ptrs.push_back(m.c_str());
+            int mon = std::clamp(s.monitor, 0, int(mons.size()) - 1);
+            if (rows::choice(kMonitorLabel[lang], &mon, mon_ptrs.data(), int(mon_ptrs.size()), 0, kMonitorDesc[lang])) {
+                s.monitor = mon;
+                settings_changed(true);
+            }
+        }
+    }
     if (!c.host.can_always_on_top) rows::disable_next();
     if (rows::toggle(l.topmost, &s.always_on_top, kDefaults.always_on_top, translated_desc(desc::topmost, lang))) settings_changed(true);
     rows::section(kCommon[lang][1]);

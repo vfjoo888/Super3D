@@ -47,6 +47,7 @@ bool load_settings(const std::string& path, Settings& s) {
         if (std::sscanf(l, "width=%d", &v) == 1 && v >= 640 && v <= 7680) s.width = v;
         else if (std::sscanf(l, "height=%d", &v) == 1 && v >= 360 && v <= 4320) s.height = v;
         else if (std::sscanf(l, "aspect_ratio=%d", &v) == 1) s.aspect_ratio = std::clamp(v, 0, 2);
+        else if (std::sscanf(l, "monitor=%d", &v) == 1) s.monitor = std::max(0, v);
         else if (std::sscanf(l, "internal_resolution=%d", &v) == 1) s.internal_resolution = std::clamp(v, 0, 9);
         else if (std::sscanf(l, "volume=%d", &v) == 1) s.volume = std::clamp(v, 0, 200);
         else if (std::sscanf(l, "audio_mode=%d", &v) == 1) s.audio_mode = std::clamp(v, 0, 2);
@@ -143,6 +144,7 @@ void save_settings(const std::string& path, const Settings& s) {
     f << "width=" << s.width << "\nheight=" << s.height << "\nvolume=" << s.volume
       << "\naudio_mode=" << s.audio_mode << "\nstereo_separation=" << s.stereo_separation
       << "\naspect_ratio=" << std::max(0, s.aspect_ratio)
+      << "\nmonitor=" << std::max(0, s.monitor)
       << "\ninternal_resolution=" << s.internal_resolution << "\nmuted=" << s.muted
       << "\nmute_in_background=" << s.mute_in_background << "\npause_in_background=" << s.pause_in_background << "\nfullscreen=" << s.fullscreen
       << "\nalways_on_top=" << s.always_on_top << "\nlanguage=" << s.language << "\ntheme=" << s.theme << "\ngame_language=" << s.game_language
