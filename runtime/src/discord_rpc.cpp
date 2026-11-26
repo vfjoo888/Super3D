@@ -215,11 +215,18 @@ bool send_activity_locked() {
 #endif
     std::string activity;
     if (g_enabled) {
+#if defined(NX_GAME_NAME)
+        const bool is_sm3dw = std::strcmp(NX_GAME_NAME, "sm3dw") == 0;
+#else
+        const bool is_sm3dw = false;
+#endif
+        const char* img = is_sm3dw ? "super3d" : "wonder";
+        const char* txt = is_sm3dw ? "Super Mario 3D World + Bowser's Fury" : "Super Mario Bros. Wonder";
         activity = "\"activity\":{"
                    "\"details\":\"" + json_escape(g_details) + "\","
                    + (!g_state.empty() ? "\"state\":\"" + json_escape(g_state) + "\"," : "") +
                    "\"timestamps\":{\"start\":" + std::to_string(g_start_time) + "},"
-                   "\"assets\":{\"large_image\":\"wonder\",\"large_text\":\"Super Mario Bros. Wonder\"}"
+                   "\"assets\":{\"large_image\":\"" + img + "\",\"large_text\":\"" + txt + "\"}"
                    "}";
     } else {
         activity = "\"activity\":null";
