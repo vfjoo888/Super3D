@@ -31,12 +31,13 @@ import subprocess
 import sys
 import time
 
-GAME = "wonder"
+GAME = os.environ.get("NX_GAME", "sm3dw")
 HERE = os.path.dirname(os.path.abspath(__file__))
 WIN = os.name == "nt"
 LIB = f"{GAME}_game.dll" if WIN else f"lib{GAME}_game.so"
 MODULES = (("main", "0x4000000000"), ("sdk", "0x4010000000"))
 WONDER_PROGRAM_ID = 0x010015100B514000
+SM3DW_PROGRAM_ID = 0x010028600EBDA000
 # Full 40-hex (or 16-hex prefix for known unsupported patches) NSO0 main Build ID -> (version, expected_romfs_product, compatible)
 EXEFS_BUILD_IDS = {
     "CD6E42AEE7934F4D8393CD43893AE25EDC83D338": ("1.0.0", 100, True),
@@ -84,7 +85,8 @@ class Kit:
     def find_compiler(self):
         exe = "clang++.exe" if WIN else "clang++"
         for c in (os.environ.get("NX_GAMEBUILD_CXX"), os.path.join(HERE, "toolchain", "bin", exe),
-                  os.path.join(os.path.dirname(self.root), "SuperWonders-builder-portable", "tools", "portable", "llvm-mingw", "bin", exe)):
+                  os.path.join(os.path.dirname(self.root), "SuperWonders-builder-portable", "tools", "portable", "llvm-mingw", "bin", exe),
+                  os.path.join(os.path.dirname(self.root), "Wonders-recomp", "SuperWonders-builder-portable", "tools", "portable", "llvm-mingw", "bin", exe)):
             if c and os.path.isfile(c):
                 return c
         return shutil.which(exe) or shutil.which("clang++")
@@ -168,8 +170,16 @@ def inspect_exefs(exefs):
 
     pid = read_npdm_program_id(exefs)
     info["program_id"] = pid
-    if pid is not None and pid != WONDER_PROGRAM_ID:
-        info["error"] = f"error: ExeFS belongs to title ID {pid:016X}, expected Super Mario Bros. Wonder ({WONDER_PROGRAM_ID:016X})"
+    expected_pid = SM3DW_PROGRAM_ID if GAME == "sm3dw" else WONDER_PROGRAM_ID
+    expected_name = "Super Mario 3D World + Bowser's Fury" if GAME == "sm3dw" else "Super Mario Bros. Wonder"
+    if pid is not None and pid != expected_pid:
+        info["error"] = f"error: ExeFS belongs to title ID {pid:016X}, expected {expected_name} ({expected_pid:016X})"
+        return info
+
+    if GAME == "sm3dw":
+        info["version"] = "SM3DW"
+        info["expected_romfs_product"] = 1
+        info["compatible"] = True
         return info
 
     bid = info["build_id"]
@@ -205,7 +215,7 @@ def default_data_root():
     r = os.environ.get("NX_DATA_ROOT")
     if r:
         return r
-    if WIN and os.path.isfile(os.path.join(os.path.dirname(HERE), f"{GAME}.exe")):
+    if WIN and os.path.isfile(os.path.join(os.path.dirname(HERE), f"{'Super3D' if GAME == 'sm3dw' else GAME}.exe")):
         return os.path.join(os.path.dirname(HERE), "data")  # a release: <folder>/wonder.exe, <folder>/data
     raise SystemExit("error: no data root: pass --data-root (or set NX_DATA_ROOT)")
 
@@ -227,7 +237,7 @@ def why_build(kit, exefs, game_dir):
         return f"no {LIB} yet"
     ids = read_ids(game_dir)
     if ids.get("kit") != kit.id():
-        return "this version of SuperWonders builds the game code differently"
+        return f"this version of {'Super3D' if GAME == 'sm3dw' else 'SuperWonders'} builds the game code differently"
     if ids.get("input") != input_id(exefs):
         return "the game files changed"
     return None

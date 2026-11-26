@@ -122,7 +122,11 @@ def harness_command():
     """The shader translator: a release's own build, NX_SPIRV_HARNESS, or a checkout's (docs/nvn/TRANSLATOR.md)."""
     exe = "spirv_harness.exe" if WIN else "spirv_harness"
     for p in (os.environ.get("NX_SPIRV_HARNESS"), os.path.join(ROOT, "translator", exe),
-              os.path.join(os.path.dirname(ROOT), "SuperWonders-builder-portable", "tools", "portable", "bin", exe)):
+              os.path.join(os.path.dirname(ROOT), "SuperWonders-builder-portable", "tools", "portable", "bin", exe),
+              os.path.join(os.path.dirname(os.path.dirname(ROOT)), "Wonders-recomp",
+                           "SuperWonders-0.4.5-Windows-release", "SuperWonders-v0.4.5-Windows-x64",
+                           "SuperWonders", "game-build", "translator", exe),
+              shutil.which(exe)):
         if p and os.path.isfile(p):
             if not WIN and not p.endswith(".dll") and not os.access(p, os.X_OK):
                 try:  # (copied without its executable bit; inside a read-only AppImage the packer has set it)
@@ -153,6 +157,14 @@ class Setup:
         info = {"valid": False, "product": None, "version_label": None, "error": None}
         if not os.path.isdir(romfs):
             info["error"] = f"error: {romfs} not found: pick the RomFS folder of your own copy of the game"
+            return info
+        if gamebuild.GAME == "sm3dw":
+            if not glob.glob(os.path.join(glob.escape(romfs), "ShaderData", "*.szs")) or not os.path.isdir(os.path.join(romfs, "SystemData")):
+                info["error"] = f"error: {romfs} doesn't look like Super Mario 3D World + Bowser's Fury's RomFS (expected ShaderData/*.szs and SystemData/)"
+                return info
+            info["valid"] = True
+            info["product"] = 1
+            info["version_label"] = "SM3DW"
             return info
         if not glob.glob(os.path.join(glob.escape(romfs), "Shader", "*.zs")):
             info["error"] = f"error: {romfs} doesn't look like Super Mario Bros. Wonder's RomFS (no Shader/*.zs)"
@@ -306,7 +318,8 @@ class Setup:
                   "--extract", os.path.join(work, "exefs")], at, share * 0.3, "Finding the game's shaders")
         harness = harness_command()
         if not harness:
-            raise SystemExit("error: no shader translator (game-build/translator) in this build of SuperWonders")
+            app = "Super3D" if gamebuild.GAME == "sm3dw" else "SuperWonders"
+            raise SystemExit(f"error: no shader translator (game-build/translator) in this build of {app}")
         spirv = os.path.join(self.data, "spirv")
         say(at + share * 0.3, "Translating the shaders")
         self.run(harness + ["--batch", work, "--out", spirv, "--jobs", str(self.jobs), "--no-val"],
@@ -382,13 +395,14 @@ class Setup:
                     self.done(step, self.ids()[step])
             at += share
             say(at, "Set up" if at >= 1 else "Setting up")
-        # Generate both profiles once from the installed RomFS and menu mod. Existing
-        # installations are also repaired by the lightweight startup check.
-        try:
-            self.run([self.py, os.path.join(TOOLS, "wonder_uw_prepare.py"), "--data-root", self.data],
-                     0.99, 0.01, "Preparing ultrawide layouts")
-        except SystemExit as e:
-            print(f"warning: {e}; ultrawide layouts will be retried when needed", flush=True)
+        if gamebuild.GAME != "sm3dw":
+            # Generate both profiles once from the installed RomFS and menu mod. Existing
+            # installations are also repaired by the lightweight startup check.
+            try:
+                self.run([self.py, os.path.join(TOOLS, "wonder_uw_prepare.py"), "--data-root", self.data],
+                         0.99, 0.01, "Preparing ultrawide layouts")
+            except SystemExit as e:
+                print(f"warning: {e}; ultrawide layouts will be retried when needed", flush=True)
         say(1.0, f"Your game is set up ({time.time() - t0:.0f} s)")
         return 0
 

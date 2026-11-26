@@ -128,23 +128,31 @@ Kit find_kit() {
         // Fallback for local CMake builds (e.g. build-git-win): locate checkout tools/ and portable python.
         fs::path cur = u8(program_dir());
         for (int depth = 0; depth < 4 && !cur.empty(); ++depth) {
-            for (const fs::path& cand : {cur / "tools" / "setup_game.py",
-                                         cur / "SuperWonders-git" / "tools" / "setup_game.py"}) {
-                if (file(cand)) {
-                    k.script = str(cand);
-                    break;
+            if (k.script.empty()) {
+                for (const fs::path& cand : {cur / "tools" / "setup_game.py",
+                                             cur / "repo" / "tools" / "setup_game.py",
+                                             cur / "SuperWonders-git" / "tools" / "setup_game.py"}) {
+                    if (file(cand)) {
+                        k.script = str(cand);
+                        break;
+                    }
                 }
             }
 #if defined(_WIN32)
-            for (const fs::path& py_cand : {cur / "SuperWonders-builder-portable" / "tools" / "portable" / "python" / "python.exe",
-                                            cur / "tools" / "portable" / "python" / "python.exe"}) {
-                if (file(py_cand)) {
-                    k.python = str(py_cand);
-                    break;
+            if (k.python.empty()) {
+                for (const fs::path& py_cand :
+                     {cur / "SuperWonders-builder-portable" / "tools" / "portable" / "python" / "python.exe",
+                      cur / "Wonders-recomp" / "SuperWonders-builder-portable" / "tools" / "portable" / "python" /
+                          "python.exe",
+                      cur / "tools" / "portable" / "python" / "python.exe"}) {
+                    if (file(py_cand)) {
+                        k.python = str(py_cand);
+                        break;
+                    }
                 }
             }
 #endif
-            if (!k.script.empty()) break;
+            if (!k.script.empty() && !k.python.empty()) break;
             fs::path parent = cur.parent_path();
             if (parent == cur) break;
             cur = parent;
@@ -199,7 +207,10 @@ Status check_status(const Kit& kit) {
         std::string abi_why;
         if (!probe_game_lib(local_lib, abi_why)) {
             s.ready = Ready::Rebuild;
-            s.why = abi_why.empty() ? "This version of SuperWonders requires rebuilding the game code." : abi_why;
+            s.why = abi_why.empty()
+                        ? (is_sm3dw() ? "This version of Super3D requires rebuilding the game code."
+                                      : "This version of SuperWonders requires rebuilding the game code.")
+                        : abi_why;
             return s;
         }
         s.kit_outdated = true;
@@ -609,7 +620,9 @@ bool folder_has(const std::string& dir, const char* name) {
 
 void start_setup() {
     if (g->kit.script.empty()) {
-        g->note = "This build of SuperWonders has no game-build folder, so it can't set the game up.";
+        g->note = is_sm3dw()
+                      ? "This build of Super3D has no game-build folder, so it can't set the game up."
+                      : "This build of SuperWonders has no game-build folder, so it can't set the game up.";
         return;
     }
     save_config(g->config);
@@ -684,15 +697,18 @@ void page_play() {
     const bool ready = g->status.ready == Ready::Yes;
     if (!ready) rows::disable_next();
     if (rows::action(lt(LtPlay), ready ? lt(LtStart) : lt(LtSetUpFirst),
-                     ready ? "Start Super Mario Bros. Wonder." : "Your game files aren't set up yet: open Game files.",
+                     ready ? (is_sm3dw() ? "Start Super Mario 3D World + Bowser's Fury." : "Start Super Mario Bros. Wonder.") : "Your game files aren't set up yet: open Game files.",
                      true, ready))
         g->play = true;
     if (!ready && rows::action(lt(LtSetUpGameFiles), "", "Pick your ExeFS and RomFS folders and set the game up."))
         g->page = PageFiles, rows::focus_first();
     rows::section(lt(LtAbout));
     rows::action(lt(LtVersion), NX_VERSION_STRING,
-                 "SuperWonders, a static recompilation of Super Mario Bros. Wonder (1.0.0 / 1.2.1) for PC. Nothing of the "
-                 "game ships with it: it's set up from your own copy.",
+                 is_sm3dw()
+                     ? "Super3D, a static recompilation of Super Mario 3D World + Bowser's Fury for PC. Nothing of the "
+                       "game ships with it: it's set up from your own copy."
+                     : "SuperWonders, a static recompilation of Super Mario Bros. Wonder (1.0.0 / 1.2.1) for PC. Nothing of the "
+                       "game ships with it: it's set up from your own copy.",
                  true);
     rows::end();
 }
@@ -774,13 +790,15 @@ void page_browse() {
     rows::section(exefs ? lt(LtChooseExeFS) : romfs ? lt(LtChooseRomFS) : lt(LtChooseOutput));
     std::error_code ec;
     const bool ok = exefs   ? (folder_has(dir, "main") && folder_has(dir, "sdk"))
-                    : romfs ? folder_has(dir, "Shader")
+                    : romfs ? (is_sm3dw() ? (folder_has(dir, "ShaderData") && folder_has(dir, "SystemData"))
+                                          : folder_has(dir, "Shader"))
                             : (!dir.empty() && fs::is_directory(u8(dir), ec));
     const std::string where = dir.empty() ? std::string("This PC") : fit_path(dir, lt(LtUseFolder));
     std::string use_desc;
     if (!ok) {
         use_desc = exefs   ? "Not an ExeFS folder: it has no main and sdk."
-                   : romfs ? "Not a RomFS folder: it has no Shader folder."
+                   : romfs ? (is_sm3dw() ? "Not a RomFS folder: it has no ShaderData and SystemData folders."
+                                         : "Not a RomFS folder: it has no Shader folder.")
                            : "Choose an existing folder (or open a drive first).";
     } else if (exefs) {
         use_desc = "Use this ExeFS folder.\nDetected: " + g->browse_exefs_info.summary;
@@ -863,12 +881,18 @@ void page_files() {
     const std::string cur_out = plat::data_root();
     const std::string out_val = fit_path(cur_out, lt(LtOutputFolder));
     std::string out_desc =
-        "Where SuperWonders places everything compiled from ExeFS and RomFS (game code, shaders, extracted files), plus "
-        "your saves and settings.\n"
-        "If you select an output folder that already contains everything needed, you won't have to recompile.";
+        is_sm3dw()
+            ? "Where Super3D places everything compiled from ExeFS and RomFS (game code, shaders, extracted files), plus "
+              "your saves and settings.\n"
+              "If you select an output folder that already contains everything needed, you won't have to recompile."
+            : "Where SuperWonders places everything compiled from ExeFS and RomFS (game code, shaders, extracted files), plus "
+              "your saves and settings.\n"
+              "If you select an output folder that already contains everything needed, you won't have to recompile.";
     if (g->status.ready == Ready::Yes) {
         out_desc += "\n\nStatus: Ready to play" +
-                    (g->status.installed_version.empty() ? std::string() : " (Wonder " + g->status.installed_version + ")");
+                    (g->status.installed_version.empty()
+                         ? std::string()
+                         : (is_sm3dw() ? " (SM3DW)" : " (Wonder " + g->status.installed_version + ")"));
     } else {
         out_desc += "\n\nStatus: " + g->status.why;
     }
@@ -878,7 +902,9 @@ void page_files() {
 
     const std::string exefs = g->config.exefs.empty() ? lt(LtChoose) : fit_path(g->config.exefs, lt(LtExeFS));
     std::string exefs_desc =
-        "The ExeFS folder of your own copy of the game (versions 1.0.0 and 1.2.1 supported). It holds main and sdk.";
+        is_sm3dw()
+            ? "The ExeFS folder of your own copy of the game. It holds main and sdk."
+            : "The ExeFS folder of your own copy of the game (versions 1.0.0 and 1.2.1 supported). It holds main and sdk.";
     if (!g->config.exefs.empty()) {
         exefs_desc += "\n\nVersion: " + g->exefs_info.summary;
         if (!g->exefs_info.build_id.empty()) exefs_desc += "\nBuild ID: " + g->exefs_info.build_id.substr(0, 16);
@@ -913,8 +939,11 @@ void page_files() {
     // Both RomFS rows share a translated label, so give the storage mode its own ID scope.
     ImGui::PushID("romfs-storage-mode");
     rows::choice(lt(LtRomFSFolder), &g->config.romfs_copy, modes, 2, 1,
-                 "Copy it: SuperWonders keeps its own copy (about 3.6 GB), so it keeps working if you move or delete "
-                 "yours. Use it in place: no copy, but SuperWonders needs your RomFS folder where it is.");
+                 is_sm3dw()
+                     ? "Copy it: Super3D keeps its own copy, so it keeps working if you move or delete "
+                       "yours. Use it in place: no copy, but Super3D needs your RomFS folder where it is."
+                     : "Copy it: SuperWonders keeps its own copy (about 3.6 GB), so it keeps working if you move or delete "
+                       "yours. Use it in place: no copy, but SuperWonders needs your RomFS folder where it is.");
     ImGui::PopID();
 
     rows::section(lt(LtSetUp));
@@ -931,7 +960,8 @@ void page_files() {
         if (ready)
             why += "\n\nYour selected output folder is already ready to play without recompiling.";
     } else {
-        why = "Builds the game code and translates shaders for Wonder " + g->exefs_info.version +
+        why = (is_sm3dw() ? "Builds the game code and translates shaders for SM3DW"
+                          : "Builds the game code and translates shaders for Wonder " + g->exefs_info.version) +
               " into the selected output folder. Steps that are already done are skipped.";
     }
     if (!pair_ok) rows::disable_next();
@@ -1427,7 +1457,8 @@ void profile_dialog(bool open) {
         ImGui::Dummy({0, 2 * k});
         if (detected_saves.empty()) {
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(th.text_dim));
-            ImGui::TextWrapped("No Eden or Ryubing Wonder saves found automatically.");
+            ImGui::TextWrapped(is_sm3dw() ? "No Eden or Ryubing SM3DW saves found automatically."
+                                          : "No Eden or Ryubing Wonder saves found automatically.");
             ImGui::PopStyleColor();
         } else {
             for (int i = 0; i < int(detected_saves.size()); ++i) {
@@ -2119,14 +2150,19 @@ void run() {
         const DWORD length = GetModuleFileNameW(nullptr, path.data(), DWORD(path.size()));
         if ((!headless || !*headless || std::strcmp(headless, "0") == 0) && length && length < path.size()) {
             path.resize(length);
-            if (_wcsicmp(fs::path(path).filename().c_str(), L"wonder.exe") == 0) {
+            if (_wcsicmp(fs::path(path).filename().c_str(), L"wonder.exe") == 0 ||
+                _wcsicmp(fs::path(path).filename().c_str(), L"Super3D.exe") == 0) {
                 const Status status = check_status(find_kit());
                 overlay::set_game_version(status.installed_version);
                 if (status.ready != Ready::Yes) {
                     log("game: cannot start: %s", status.why.c_str());
                     const std::string message = status.why +
-                        "\n\nOpen wonder-launcher.exe, select your game files and complete Set up game files.";
-                    MessageBoxA(nullptr, message.c_str(), "SuperWonders - Game setup required", MB_OK | MB_ICONINFORMATION);
+                        (is_sm3dw()
+                             ? "\n\nOpen Super3D-launcher.exe, select your game files and complete Set up game files."
+                             : "\n\nOpen wonder-launcher.exe, select your game files and complete Set up game files.");
+                    MessageBoxA(nullptr, message.c_str(),
+                                is_sm3dw() ? "Super3D - Game setup required" : "SuperWonders - Game setup required",
+                                MB_OK | MB_ICONINFORMATION);
                     plat::exit_process(1);
                 }
                 if (overlay::game_language() >= 16 && status.installed_version != "1.2.1") {

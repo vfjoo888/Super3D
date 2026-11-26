@@ -660,8 +660,10 @@ void page_updates(float k) {
         st = g.st, msg = g.message, managed = g.managed, rel = g.rel;
     }
     rows::begin("##updates", ImGui::GetContentRegionAvail().y);
-    rows::section("SuperWonders Update");
-    rows::action("This version", current_version().c_str(), "The version of SuperWonders you have.", true);
+    const bool is_sm3dw = std::strcmp(NX_GAME_NAME, "sm3dw") == 0;
+    rows::section(is_sm3dw ? "Super3D Update" : "SuperWonders Update");
+    rows::action("This version", current_version().c_str(),
+                 is_sm3dw ? "The version of Super3D you have." : "The version of SuperWonders you have.", true);
     switch (st) {
         case St::Off:
             rows::disable_next();
@@ -670,9 +672,12 @@ void page_updates(float k) {
                          true);
             break;
         case St::Managed: {
-            const std::string d = managed + " installed this copy of SuperWonders and keeps it up to date, so "
-                                            "SuperWonders Update stays out of its way: two updaters on one folder "
-                                            "would fight over its files.";
+            const std::string d = managed + (is_sm3dw ? " installed this copy of Super3D and keeps it up to date, so "
+                                                        "Super3D Update stays out of its way: two updaters on one folder "
+                                                        "would fight over its files."
+                                                      : " installed this copy of SuperWonders and keeps it up to date, so "
+                                                        "SuperWonders Update stays out of its way: two updaters on one folder "
+                                                        "would fight over its files.");
             rows::disable_next();
             rows::action("Updates", managed.c_str(), d.c_str(), true);
             break;

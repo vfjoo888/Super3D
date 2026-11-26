@@ -16,8 +16,17 @@ namespace nx::launcher {
 namespace {
 
 constexpr uint64_t kWonderProgramId = 0x010015100B514000ull;
+constexpr uint64_t kSm3dwProgramId  = 0x010028600EBDA000ull;
 constexpr uintmax_t kMain100FlatSize = 0x359cc28ull;
 constexpr uintmax_t kMain121FlatSize = 0x3728df8ull;
+
+bool is_sm3dw() {
+#ifdef NX_GAME_NAME
+    return std::strcmp(NX_GAME_NAME, "sm3dw") == 0;
+#else
+    return false;
+#endif
+}
 
 struct KnownExefsBuild {
     const char* id;
@@ -152,13 +161,23 @@ ExefsInfo inspect_exefs(const fs::path& dir) {
     info.build_id = to_hex_upper(main_hdr.data() + 0x40, 20);
 
     uint64_t pid = 0;
+    const uint64_t expected_pid = is_sm3dw() ? kSm3dwProgramId : kWonderProgramId;
+    const char* expected_pid_str = is_sm3dw() ? "010028600EBDA000" : "010015100B514000";
     if (read_npdm_program_id(dir / "main.npdm", pid)) {
         info.program_id = hex_u64_upper(pid);
-        if (pid != kWonderProgramId) {
+        if (pid != expected_pid) {
             info.wrong_game = true;
-            info.summary = "Wrong game (Title ID " + info.program_id + ", expected 010015100B514000)";
+            info.summary = "Wrong game (Title ID " + info.program_id + ", expected " + expected_pid_str + ")";
             return info;
         }
+    }
+
+    if (is_sm3dw()) {
+        info.compatible = true;
+        info.version = "SM3DW";
+        info.expected_romfs_product = 1;
+        info.summary = "Compatible (Build ID " + info.build_id.substr(0, 16) + ")";
+        return info;
     }
 
     for (const KnownExefsBuild& b : kKnownBuilds) {
@@ -192,9 +211,34 @@ RomfsInfo inspect_romfs(const fs::path& dir) {
         info.summary = "Folder not found";
         return info;
     }
+    std::error_code ec;
+    if (is_sm3dw()) {
+        const fs::path shader_dir = dir / "ShaderData";
+        const fs::path system_dir = dir / "SystemData";
+        bool has_shader_szs = false;
+        if (is_dir(shader_dir)) {
+            for (auto& e : fs::directory_iterator(shader_dir, fs::directory_options::skip_permission_denied, ec)) {
+                if (!e.is_regular_file(ec)) continue;
+                if (e.path().extension() == ".szs") {
+                    has_shader_szs = true;
+                    break;
+                }
+            }
+        }
+        if (!has_shader_szs || !is_dir(system_dir)) {
+            info.summary = "Not a Super Mario 3D World RomFS (expected ShaderData/*.szs and SystemData/)";
+            return info;
+        }
+        info.valid = true;
+        info.product = 1;
+        info.compatible = true;
+        info.version_label = "SM3DW";
+        info.summary = "Super Mario 3D World + Bowser's Fury RomFS";
+        return info;
+    }
+
     const fs::path shader_dir = dir / "Shader";
     bool has_shader_zs = false;
-    std::error_code ec;
     if (is_dir(shader_dir)) {
         for (auto& e : fs::directory_iterator(shader_dir, fs::directory_options::skip_permission_denied, ec)) {
             if (!e.is_regular_file(ec)) continue;
@@ -247,7 +291,9 @@ PairInfo evaluate_pair(const ExefsInfo& ex, const RomfsInfo& rom) {
         out.state = PairState::Incomplete;
         if (!ex.present && !rom.present) {
             out.badge = "Not selected";
-            out.detail = "Pick your ExeFS and RomFS folders to check game version and compatibility (1.0.0 or 1.2.1).";
+            out.detail = is_sm3dw()
+                ? "Pick your ExeFS and RomFS folders for Super Mario 3D World + Bowser's Fury."
+                : "Pick your ExeFS and RomFS folders to check game version and compatibility (1.0.0 or 1.2.1).";
         } else if (ex.present) {
             out.badge = ex.valid_nso ? ((ex.version.empty() ? "ExeFS" : ex.version) + " - pick RomFS")
                                      : ("ExeFS: " + ex.summary);
@@ -291,9 +337,15 @@ PairInfo evaluate_pair(const ExefsInfo& ex, const RomfsInfo& rom) {
         return out;
     }
     out.state = PairState::Compatible;
-    out.badge = ex.version + " (Compatible)";
-    out.detail = "Detected Super Mario Bros. Wonder " + ex.version +
-                 " (Build ID " + ex.build_id.substr(0, 16) + "). Compatible and ready to set up.";
+    if (is_sm3dw()) {
+        out.badge = "Compatible";
+        out.detail = "Detected Super Mario 3D World + Bowser's Fury (Build ID " +
+                     ex.build_id.substr(0, 16) + "). Compatible and ready to set up.";
+    } else {
+        out.badge = ex.version + " (Compatible)";
+        out.detail = "Detected Super Mario Bros. Wonder " + ex.version +
+                     " (Build ID " + ex.build_id.substr(0, 16) + "). Compatible and ready to set up.";
+    }
     return out;
 }
 
@@ -312,7 +364,7 @@ OutputInfo inspect_output_dir(const fs::path& dir, const std::string& gamelib_fi
     out.has_romfs = is_dir(dir / "extract" / "romfs" / "Shader") || is_dir(dir / "extract" / "romfs" / "ShaderData");
 
     out.installed_version = read_key(dir / "game" / "build-id.txt", "version");
-    if (out.installed_version.empty() && is_file(dir / "analysis" / "main.bin")) {
+    if (!is_sm3dw() && out.installed_version.empty() && is_file(dir / "analysis" / "main.bin")) {
         std::error_code ec;
         const uintmax_t sz = fs::file_size(dir / "analysis" / "main.bin", ec);
         if (!ec) {

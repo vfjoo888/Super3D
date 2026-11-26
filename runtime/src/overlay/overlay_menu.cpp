@@ -1716,7 +1716,11 @@ void system_tab(MenuContext& c, const Labels& l) {
         "在 Discord 上显示《超级马力欧兄弟 惊奇》的游玩状态。",
         "在 Discord 上顯示《超級瑪利歐兄弟 驚奇》的遊玩狀態。",
     };
-    if (rows::toggle("Discord Rich Presence", &s.discord_rpc, kDefaults.discord_rpc, kDiscordDesc[lang]))
+    const char* discord_desc = (std::strcmp(NX_GAME_NAME, "sm3dw") == 0)
+        ? (lang == 1 ? "Mostra su Discord a cosa stai giocando in Super Mario 3D World + Bowser's Fury."
+                     : "Show Super Mario 3D World + Bowser's Fury activity on Discord.")
+        : kDiscordDesc[lang];
+    if (rows::toggle("Discord Rich Presence", &s.discord_rpc, kDefaults.discord_rpc, discord_desc))
         settings_changed(true);
     {
         constexpr const char* kBgPauseText[13][2] = {
