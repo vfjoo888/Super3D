@@ -295,11 +295,13 @@ void begin_rendering(VkCommandBuffer cb, const Targets& t) {
     g_pass_images[8] = dimg;
     if (dimg && dimg->aspect != VK_IMAGE_ASPECT_COLOR_BIT) {
         if (dimg->layout == VK_IMAGE_LAYOUT_UNDEFINED && !load_undefined) fresh |= 1u << 8;
-        transition(cb, *dimg, VK_IMAGE_LAYOUT_GENERAL);
+        const bool shadow_opt = !render_pass_objects() && t.color_count == 0 && dimg->aspect == VK_IMAGE_ASPECT_DEPTH_BIT;
+        const VkImageLayout dlayout = shadow_opt ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL : VK_IMAGE_LAYOUT_GENERAL;
+        transition(cb, *dimg, dlayout);
         dimg->rendered = true;
         uint32_t level = std::min<uint32_t>(t.views.level[8], dimg->levels - 1);
         depth.imageView = attachment_view(*dimg, level, t.views.layer[8]);
-        depth.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        depth.imageLayout = dlayout;
         depth.loadOp = fresh >> 8 & 1 ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
         depth.clearValue.depthStencil = {1.0f, 0};  // far (a fresh depth buffer; the course passes test LESS)
         depth.storeOp = VK_ATTACHMENT_STORE_OP_STORE;

@@ -328,7 +328,13 @@ NX_HLE("nvnCommandBufferDrawArraysInstanced", DrawArraysInstanced);
 NX_HLE("nvnCommandBufferDrawElements", DrawElements);
 NX_HLE("nvnCommandBufferDrawElementsBaseVertex", DrawElementsBaseVertex);
 NX_HLE("nvnCommandBufferDrawElementsInstanced", DrawElementsInstanced);
-NX_HLE("nvnCommandBufferBarrier", ignore);
+void Barrier(CPU& c) {
+    Cmd cmd{Cmd::Barrier};
+    cmd.mask = uint32_t(c.x[1]);
+    record(c.x[0], cmd);
+}
+
+NX_HLE("nvnCommandBufferBarrier", Barrier);
 NX_HLE("nvnCommandBufferReportCounter", ReportCounter);
 NX_HLE("nvnDeviceGetTimestampInNanoseconds", GetTimestampInNanoseconds);
 NX_HLE("nvnDeviceGetCurrentTimestampInNanoseconds", GetCurrentTimestampInNanoseconds);  // every replayed command is serialized for now

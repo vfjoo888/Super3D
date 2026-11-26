@@ -8,6 +8,8 @@
 //   GetReductionFilter(s) -> enum
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
+#include <unordered_map>
 
 #include "nvn.h"
 
@@ -49,11 +51,31 @@ void log_sampler(const SamplerInfo& s) {
 void SamplerInitialize(CPU& c) {  // NVNboolean (NVNsampler*, const NVNsamplerBuilder*)
     uint64_t guest = c.x[0], builder = c.x[1];
     SamplerInfo info = decode_builder(c, builder);
-    static std::atomic<uint64_t> g_next_samp_token{0};
-    uint64_t tok = kSampTokenBase | (++g_next_samp_token & 0x0FFFFFFFFFFFFFFFull);
+    // Normalize -0.0f to +0.0f so identical sampler states always hash/compare identically.
+    auto norm = [](float& f) { if (f == 0.0f) f = 0.0f; };
+    norm(info.lod_min); norm(info.lod_max); norm(info.lod_bias); norm(info.max_anisotropy);
+    for (float& b : info.border) norm(b);
+    // Intern identical SamplerInfo to a deterministic token so games that hash/compare NVNsampler
+    // bytes (e.g. SM3DW's sampler pool cache) deduplicate identical samplers instead of overflowing
+    // the sampler pool every few frames and overwriting live sampler slots.
+    static std::mutex intern_mu;
+    static std::unordered_map<std::string, uint64_t> intern_map;
+    static uint64_t next_tok = 0;
+    uint64_t tok = 0;
+    {
+        std::string key(reinterpret_cast<const char*>(&info), sizeof(info));
+        std::lock_guard lk(intern_mu);
+        auto it = intern_map.find(key);
+        if (it != intern_map.end()) {
+            tok = it->second;
+        } else {
+            tok = kSampTokenBase | (++next_tok & 0x0FFFFFFFFFFFFFFFull);
+            intern_map.emplace(std::move(key), tok);
+            make<Sampler>(tok).info = info;
+        }
+    }
     st<uint64_t>(guest, kSampTokenMagic);
     st<uint64_t>(guest + 8, tok);
-    make<Sampler>(tok).info = info;
     log_sampler(info);
     c.x[0] = 1;
 }
@@ -61,7 +83,11 @@ void SamplerInitialize(CPU& c) {  // NVNboolean (NVNsampler*, const NVNsamplerBu
 void SamplerFinalize(CPU& c) {
     uint64_t orig = c.x[0];
     uint64_t key = resolve_sampler_key(orig);
-    if (key != orig) st<uint64_t>(orig, 0);
+    if (key != orig) {
+        st<uint64_t>(orig, 0);
+        // Interned sampler tokens are shared across all identical NVNsampler instances; do not destroy them.
+        return;
+    }
     destroy(key);
 }
 

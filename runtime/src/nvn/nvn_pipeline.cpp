@@ -1302,8 +1302,12 @@ bool sampled_ready(uint64_t texture) {
     if (t->dirty && !t->image->rendered) return g_not_ready[1]++, false;
     if (t->has_writes.load(std::memory_order_acquire)) return g_not_ready[2]++, false;  // no lock (nvn.h)
     const GpuImage& img = *t->image;
-    bool ok = img.rendered ? img.layout == VK_IMAGE_LAYOUT_GENERAL
-                           : img.uploaded && img.layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    const VkImageLayout want = img.rendered
+                                   ? (!render_pass_objects() && img.aspect == VK_IMAGE_ASPECT_DEPTH_BIT
+                                          ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+                                          : VK_IMAGE_LAYOUT_GENERAL)
+                                   : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    bool ok = img.rendered ? img.layout == want : img.uploaded && img.layout == want;
     if (!ok) g_not_ready[img.rendered ? 3 : !img.uploaded ? 4 : 5]++;
     return ok;
 }
@@ -1388,7 +1392,11 @@ VkImageView sampled_view(VkCommandBuffer cb, uint64_t texture, const ImageShape&
     // its D32 twin (nvn_compare_twin.cpp).
     if (shape.depth && compare_twin_wanted(*img))
         if (VkImageView twin = compare_twin_view(cb, *img, view_type(shape))) return twin;
-    *layout = img->rendered ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    *layout = img->rendered
+                  ? (!render_pass_objects() && img->aspect == VK_IMAGE_ASPECT_DEPTH_BIT
+                         ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+                         : VK_IMAGE_LAYOUT_GENERAL)
+                  : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     transition(cb, *img, *layout);
     // The swizzle belongs to the texture (its builder, or its pool view), not to the image: an image may be shared
     // with or inherited from another texture over the same memory (#36, #42), whose swizzle differs. With the
