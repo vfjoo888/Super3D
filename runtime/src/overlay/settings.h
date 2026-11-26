@@ -33,7 +33,7 @@ struct Settings {
     int audio_mode = 0;         // 0 Stereo, 1 Mono, 2 5.1 Surround (PCM)
     int stereo_separation = 100;  // 0..100% (used in Stereo mode)
     int language = 0;       // menu language: English, Italian, German, French, Spanish, Korean, Japanese, Arabic, Russian, Turkish, Dutch, Simplified Chinese, Traditional Chinese
-    int theme = 0;          // UI style color preset: 0 Obsidian, 1 Cobalt, 2 Emerald, 3 Amber, 4 Crimson
+    int theme = 0;          // UI style preset (index into overlay_ui.cpp's palettes): 0 is "Super Sky", the default look at first launch
     int game_language = 0;  // en-US, it, de, fr, pt-BR, es, ko, ja, nl, ru, zh-Hans, zh-Hant, pt, es-419, fr-CA, en-GB, th, pl
     int memory_limit_gb = 8;
     std::array<int, 4> player_devices{{0, 0, 0, 0}}; // 0 automatic, 1 none, 2 keyboard, 3..6 controller slots
