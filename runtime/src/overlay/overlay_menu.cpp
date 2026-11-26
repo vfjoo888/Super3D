@@ -188,7 +188,7 @@ constexpr const char* kPhysical[kControlCount] = {
     "A / Cross", "B / Circle", "X / Square", "Y / Triangle", "LB / L1", "RB / R1", "LT / L2", "RT / R2",
     "Start / +", "Back / -", "L3 / LS", "R3 / RS", "D-pad Left", "D-pad Up", "D-pad Right", "D-pad Down",
 };
-constexpr int kTabs = 8;
+constexpr int kTabs = 6;
 
 namespace desc {
 constexpr const char* language = "Language of this menu.";
@@ -2348,7 +2348,7 @@ void draw_menu(MenuContext& c) {
     if (close_button(k)) c.open = false;
     ImGui::Dummy(ImVec2(0, (light ? 22 : 4) * k));
 
-    const char* names[kTabs] = {l.video, l.audio, l.controls, l.overlay, l.system, "Network", "Speedrun",
+    const char* names[kTabs] = {l.video, l.audio, l.controls, l.overlay, l.system,
                                 kDebugLabels[std::clamp(s.language, 0, 12)].tab};
     int current = -1;
     // Tabs follow the keyboard / controller focus: moving onto a tab with the arrows or the D-pad shows it (next
@@ -2400,8 +2400,6 @@ void draw_menu(MenuContext& c) {
                 case 2: controls(c, l); break;
                 case 3: overlay_tab(c); break;
                 case 4: system_tab(c, l); break;
-                case 5: network_tab(c); break;
-                case 6: speedrun_tab(c); break;
                 default: debug_tab(c); break;
             }
             ImGui::EndChild();
