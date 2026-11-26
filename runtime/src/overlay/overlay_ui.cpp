@@ -145,6 +145,12 @@ namespace {
 
 // Modern minimalist palettes: neutral dark surfaces for high contrast and clean readability, paired with refined accents.
 const Theme kThemes[] = {
+#if defined(NX_GAME_NAME)
+    {"Midnight Gold", IM_COL32(248, 192, 48, 255), IM_COL32(255, 224, 112, 255), IM_COL32(244, 247, 252, 255),
+     IM_COL32(176, 186, 208, 255), IM_COL32(108, 120, 148, 255), IM_COL32(15, 22, 42, 242), IM_COL32(22, 32, 60, 252),
+     IM_COL32(9, 14, 30, 255), IM_COL32(15, 24, 52, 255), IM_COL32(74, 222, 128, 255), IM_COL32(250, 204, 21, 255),
+     IM_COL32(248, 113, 113, 255)},
+#endif
     {"Obsidian", IM_COL32(244, 91, 147, 255), IM_COL32(122, 200, 255, 255), IM_COL32(244, 246, 250, 255),
      IM_COL32(174, 180, 194, 255), IM_COL32(106, 112, 128, 255), IM_COL32(18, 20, 26, 242), IM_COL32(25, 28, 36, 252),
      IM_COL32(11, 13, 18, 255), IM_COL32(18, 21, 29, 255), IM_COL32(74, 222, 128, 255), IM_COL32(250, 204, 21, 255),

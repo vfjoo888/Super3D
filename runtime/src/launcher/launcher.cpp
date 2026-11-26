@@ -1,5 +1,6 @@
 // SuperWonders Launcher (launcher.h): state, the setup job, and the screen.
 #include "launcher/launcher.h"
+#include <nx/game.h>
 
 #include <algorithm>
 #include <atomic>
@@ -170,15 +171,28 @@ struct Status {
     std::string why;
 };
 
+inline bool is_sm3dw() { return std::strcmp(NX_GAME_NAME, "sm3dw") == 0; }
+
 Status check_status(const Kit& kit) {
     const fs::path d = u8(plat::data_root());
-    const OutputInfo out = inspect_output_dir(d, NX_GAMELIB_FILE, game_lib_path());
+#if NX_GAME_LIBRARY
+    const std::string fallback_lib = game_lib_path();
+#else
+    const std::string fallback_lib = str(u8(program_dir()) / (is_sm3dw() ?
+#if defined(_WIN32)
+        "Super3D.exe" : "wonder.exe"));
+#else
+        "Super3D" : "wonder"));
+#endif
+#endif
+    const OutputInfo out = inspect_output_dir(d, NX_GAMELIB_FILE, fallback_lib);
     Status s;
     s.installed_version = out.installed_version;
     if (!out.ready) {
         s.why = out.missing_reason;
         return s;
     }
+#if NX_GAME_LIBRARY
     const std::string built = read_line(d / "game" / "build-id.txt", "kit");
     const std::string local_lib = str(d / "game" / NX_GAMELIB_FILE);
     if (!kit.id.empty() && !built.empty() && built != kit.id && game_lib_path() == local_lib) {
@@ -190,6 +204,7 @@ Status check_status(const Kit& kit) {
         }
         s.kit_outdated = true;
     }
+#endif
     s.ready = Ready::Yes;
     return s;
 }
@@ -481,6 +496,10 @@ const char* lt(LauncherText text) {
         if (text >= LtPlay && text <= LtQuit) return navigation[language - 10][text - LtPlay];
     }
     // The existing launcher help and setup text has no Dutch or Chinese translation yet.
+    if (is_sm3dw()) {
+        if (text == LtSuperWonders) return "Super3D";
+        if (text == LtQuitSuperWonders) return language == 1 ? "Esci da Super3D" : "Quit Super3D";
+    }
     const int safe_language = std::min(language, 9);
     return kLauncherText[safe_language][text];
 }
@@ -1844,13 +1863,14 @@ void screen(float w, float h) {
     ImGui::PushFont(ui::title());
     ImGui::SetWindowFontScale(1.05f);
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(th.text));
-    ImGui::TextUnformatted("SUPERWONDERS");
+    ImGui::TextUnformatted(is_sm3dw() ? "SUPER3D" : "SUPERWONDERS");
     ImGui::PopStyleColor();
     ImGui::SetWindowFontScale(1.0f);
     ImGui::PopFont();
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertU32ToFloat4(th.text_dim));
     ImGui::SetWindowFontScale(0.86f);
-    ImGui::TextUnformatted(g->config_mode ? "Super Mario Bros. Wonder  ·  Configuration" : "Super Mario Bros. Wonder");
+    ImGui::TextUnformatted(is_sm3dw() ? (g->config_mode ? "3D World PC Port  ·  Configuration" : "3D World PC Port")
+                                      : (g->config_mode ? "Super Mario Bros. Wonder  ·  Configuration" : "Super Mario Bros. Wonder"));
     ImGui::SetWindowFontScale(1.0f);
     ImGui::PopStyleColor();
     ImGui::EndGroup();
@@ -2039,11 +2059,13 @@ bool wanted(const std::vector<std::string>& args, bool& config_mode) {
     if (length && length < path.size()) {
         path.resize(length);
         const auto name = fs::path(path).filename().wstring();
-        if (_wcsicmp(name.c_str(), L"wonder.exe") == 0 && !config_mode) return false;
+        if ((_wcsicmp(name.c_str(), L"wonder.exe") == 0 || _wcsicmp(name.c_str(), L"Super3D.exe") == 0) && !config_mode)
+            return false;
     }
 #else
     const fs::path self = self_exe_path();
-    if (!self.empty() && self.filename() == "wonder" && !config_mode && file(self.parent_path() / "wonder-launcher"))
+    if (!self.empty() && ((self.filename() == "wonder" && file(self.parent_path() / "wonder-launcher")) ||
+                          self.filename() == "Super3D") && !config_mode)
         return false;
 #endif
     auto env_on = [](const char* n) {
@@ -2209,7 +2231,7 @@ void run() {
         if (g->play && !g->job.running) {
             refresh_status();
             if (g->status.ready == Ready::Yes) {
-                if (overlay::game_language() >= 16 && g->status.installed_version != "1.2.1") {
+                if (!is_sm3dw() && overlay::game_language() >= 16 && g->status.installed_version != "1.2.1") {
                     g->play = false;
                     g->open_lang_warning = true;
                     continue;
@@ -2219,13 +2241,16 @@ void run() {
                 DWORD n = GetModuleFileNameW(nullptr, self.data(), DWORD(self.size()));
                 if (n && n < self.size()) {
                     self.resize(n);
-                    if (_wcsicmp(fs::path(self).filename().c_str(), L"wonder-launcher.exe") == 0) {
+                    const auto fname = fs::path(self).filename();
+                    const wchar_t* target_exe = _wcsicmp(fname.c_str(), L"Super3D-launcher.exe") == 0 ? L"Super3D.exe"
+                                            : (_wcsicmp(fname.c_str(), L"wonder-launcher.exe") == 0 ? L"wonder.exe" : nullptr);
+                    if (target_exe) {
                         const std::string root_utf8 = plat::data_root();
                         int wn = MultiByteToWideChar(CP_UTF8, 0, root_utf8.c_str(), -1, nullptr, 0);
                         std::wstring root_w(size_t(std::max(1, wn)) - 1, L'\0');
                         MultiByteToWideChar(CP_UTF8, 0, root_utf8.c_str(), -1, root_w.data(), wn);
                         SetEnvironmentVariableW(L"NX_DATA_ROOT", root_w.c_str());
-                        const std::wstring game = (fs::path(self).parent_path() / L"wonder.exe").wstring();
+                        const std::wstring game = (fs::path(self).parent_path() / target_exe).wstring();
                         std::wstring command = L"\"" + game + L"\" --play";
                         STARTUPINFOW si{};
                         si.cb = sizeof(si);
@@ -2235,25 +2260,26 @@ void run() {
                             CloseHandle(pi.hProcess);
                             plat::exit_process(0);
                         }
-                        log("launcher: could not start wonder.exe (Windows error %lu)", GetLastError());
-                        ui::notify("Could not start wonder.exe. Check that it is in the same folder as the launcher.");
+                        log("launcher: could not start %ls (Windows error %lu)", target_exe, GetLastError());
+                        ui::notify("Could not start the game executable. Check that it is in the same folder as the launcher.");
                         g->play = false;
                         continue;
                     }
                 }
 #else
                 const fs::path self = self_exe_path();
-                if (!self.empty() && self.filename() == "wonder-launcher") {
-                    const fs::path game = self.parent_path() / "wonder";
+                const char* target_bin = !self.empty() && self.filename() == "Super3D-launcher" ? "Super3D"
+                                       : (!self.empty() && self.filename() == "wonder-launcher" ? "wonder" : nullptr);
+                if (target_bin) {
+                    const fs::path game = self.parent_path() / target_bin;
                     if (file(game)) {
                         setenv("NX_DATA_ROOT", plat::data_root().c_str(), 1);
                         const std::string game_s = str(game);
-                        char arg0[] = "wonder";
                         char arg1[] = "--play";
-                        char* argv[] = {arg0, arg1, nullptr};
+                        char* argv[] = {const_cast<char*>(target_bin), arg1, nullptr};
                         execv(game_s.c_str(), argv);
-                        log("launcher: could not start wonder (errno %d)", errno);
-                        ui::notify("Could not start wonder. Check that it is in the same folder as the launcher.");
+                        log("launcher: could not start %s (errno %d)", target_bin, errno);
+                        ui::notify("Could not start the game executable. Check that it is in the same folder as the launcher.");
                         g->play = false;
                         continue;
                     }

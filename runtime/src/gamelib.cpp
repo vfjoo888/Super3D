@@ -21,7 +21,8 @@
 #if !NX_GAME_LIBRARY
 extern const nx::ModuleInfo nx_module_main;
 extern const nx::ModuleInfo nx_module_sdk;
-#elif defined(_WIN32)
+#endif
+#if defined(_WIN32)
 #include <windows.h>
 #else
 #include <dlfcn.h>
@@ -29,26 +30,6 @@ extern const nx::ModuleInfo nx_module_sdk;
 #endif
 
 namespace nx {
-
-#if !NX_GAME_LIBRARY
-
-const GameLib& game_lib() {
-    static const GameLib lib = {gamelib_layout(), NX_GAME_NAME, &nx_module_main, &nx_module_sdk};
-    return lib;
-}
-
-#else
-
-namespace {
-
-bool exists(const std::string& path) {
-    FILE* f = plat::fopen_utf8(path, "rb");
-    if (!f) return false;
-    std::fclose(f);
-    return true;
-}
-
-}  // namespace
 
 std::string program_dir() {
 #if defined(_WIN32)
@@ -70,6 +51,27 @@ std::string program_dir() {
     return slash == std::string::npos ? "." : s.substr(0, slash);
 #endif
 }
+
+#if !NX_GAME_LIBRARY
+
+const GameLib& game_lib() {
+    static const GameLib lib = {gamelib_layout(), NX_GAME_NAME, &nx_module_main, &nx_module_sdk};
+    return lib;
+}
+
+#else
+
+namespace {
+
+bool exists(const std::string& path) {
+    FILE* f = plat::fopen_utf8(path, "rb");
+    if (!f) return false;
+    std::fclose(f);
+    return true;
+}
+
+}  // namespace
+
 
 namespace {
 

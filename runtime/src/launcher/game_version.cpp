@@ -309,7 +309,7 @@ OutputInfo inspect_output_dir(const fs::path& dir, const std::string& gamelib_fi
     out.has_gamelib = is_file(local_lib) || (!fallback_gamelib_path.empty() && is_file(path_u8(fallback_gamelib_path)));
     out.has_analysis = is_file(dir / "analysis" / "main.bin") && is_file(dir / "analysis" / "sdk.bin");
     out.has_shaders = is_file(dir / "shader_programs.bin") && is_file(dir / "spirv" / "results.tsv");
-    out.has_romfs = is_dir(dir / "extract" / "romfs" / "Shader");
+    out.has_romfs = is_dir(dir / "extract" / "romfs" / "Shader") || is_dir(dir / "extract" / "romfs" / "ShaderData");
 
     out.installed_version = read_key(dir / "game" / "build-id.txt", "version");
     if (out.installed_version.empty() && is_file(dir / "analysis" / "main.bin")) {

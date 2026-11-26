@@ -13,7 +13,7 @@
 #include "discord_rpc.h"
 #include "nextendo_client.h"
 #include "kernel.h"
-#if NX_GAME_LIBRARY
+#if NX_HAS_LAUNCHER
 #include "launcher/launcher.h"
 #endif
 #include "platform.h"
@@ -150,11 +150,11 @@ void boot() {
     discord::init("1573462667874537472");  // override via NX_DISCORD_APP_ID
     nextendo::init(plat::data_root());
     memory_init();
-#if NX_GAME_LIBRARY
+#if NX_HAS_LAUNCHER
     // The start screen, when the game isn't set up or with --config: after the guest memory is reserved (so nothing it
     // allocates lands there), before the kernel and its watchdog start (the game hasn't, and isn't hung).
     launcher::run();
-    launcher::prepare_ultrawide_layouts();
+    if (std::strcmp(NX_GAME_NAME, "wonder") == 0) launcher::prepare_ultrawide_layouts();
 #endif
     nextendo::start_session_heartbeat();
     kernel_init();

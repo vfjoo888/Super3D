@@ -11,7 +11,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # runtime is the rest. One build directory per game.
 set(NX_GAME "hades" CACHE STRING "Game to build (a folder under games/)")
 set(NX_GAME_DIR "${CMAKE_SOURCE_DIR}/games/${NX_GAME}")
-if(WIN32 AND NX_GAME STREQUAL "wonder")
+if(WIN32 AND (NX_GAME STREQUAL "wonder" OR NX_GAME STREQUAL "sm3dw"))
     enable_language(RC)
 endif()
 if(NOT EXISTS "${NX_GAME_DIR}/game.cpp")
@@ -346,8 +346,9 @@ set_source_files_properties(runtime/src/overlay/overlay_vk.cpp PROPERTIES
     COMPILE_DEFINITIONS "IMGUI_IMPL_VULKAN_NO_PROTOTYPES")
 file(GLOB NX_GAME_SOURCES CONFIGURE_DEPENDS "${NX_GAME_DIR}/*.cpp")
 list(APPEND NX_RUNTIME_SOURCES ${NX_GAME_SOURCES} ${NX_SHADER_SOURCES} runtime/src/gamelib.cpp)
-if(NX_GAME_LIBRARY)
-    # SuperWonders Launcher: the start screen before the game (setup, settings, mods, updates; launcher/launcher.h)
+if(NX_GAME_LIBRARY OR NX_GAME STREQUAL "sm3dw")
+    set(NX_HAS_LAUNCHER ON)
+    # Launcher: the start screen before the game (setup, settings, mods, updates; launcher/launcher.h)
     list(APPEND NX_RUNTIME_SOURCES runtime/src/launcher/launcher.cpp runtime/src/launcher/game_version.cpp
          runtime/src/launcher/updates.cpp runtime/src/launcher/test_pad.cpp
          runtime/src/launcher/update_core.c runtime/src/launcher/update_crypto.c)
@@ -504,7 +505,11 @@ else()
                     "$<TARGET_FILE:${NX_GAME}>" "$<TARGET_FILE_DIR:${NX_GAME}>/wonder-launcher.exe"
                 VERBATIM)
         endif()
-        if(NX_GAME STREQUAL "wonder")
+        if(NX_GAME STREQUAL "sm3dw")
+            file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}/assets/super3d_app.ico" WONDER_APP_ICON_PATH)
+            configure_file(assets/wonder_app.rc.in "${CMAKE_CURRENT_BINARY_DIR}/super3d_app.rc" @ONLY)
+            target_sources(${NX_GAME} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/super3d_app.rc")
+        elseif(NX_GAME STREQUAL "wonder")
             file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}/assets/wonder_app.ico" WONDER_APP_ICON_PATH)
             configure_file(assets/wonder_app.rc.in "${CMAKE_CURRENT_BINARY_DIR}/wonder_app.rc" @ONLY)
             target_sources(${NX_GAME} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/wonder_app.rc")
@@ -523,9 +528,17 @@ else()
     endif()
 endif()
 
+if(NX_GAME STREQUAL "sm3dw")
+    set_target_properties(${NX_GAME} PROPERTIES OUTPUT_NAME "Super3D")
+    add_custom_command(TARGET ${NX_GAME} POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "$<TARGET_FILE:${NX_GAME}>" "$<TARGET_FILE_DIR:${NX_GAME}>/Super3D-launcher${CMAKE_EXECUTABLE_SUFFIX}"
+        VERBATIM)
+endif()
 target_include_directories(${NX_GAME} PRIVATE "${NX_SHADER_OUT}")
 target_compile_definitions(${NX_GAME} PRIVATE NX_GAME_NAME="${NX_GAME}" NX_GAMELIB_FILE="${NX_GAMELIB_FILE}"
-                           NX_GAME_LIBRARY=$<BOOL:${NX_GAME_LIBRARY}> NX_VERSION_STRING="${NX_VERSION}")
+                           NX_GAME_LIBRARY=$<BOOL:${NX_GAME_LIBRARY}> NX_HAS_LAUNCHER=$<BOOL:${NX_HAS_LAUNCHER}>
+                           NX_VERSION_STRING="${NX_VERSION}")
 # SuperWonders Update (launcher/updates.cpp): with a release key's public half (tools/sign_update.py --public), only
 # signed releases are installed; without one, GitHub's SHA-256 of the archive is still required.
 set(SUPERWONDERS_UPDATE_PUBKEY "" CACHE STRING "Release signing key, public half (128 hex digits); empty: not required")
