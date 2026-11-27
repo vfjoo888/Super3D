@@ -110,25 +110,40 @@ jobs:
               "temperature": 0,
               "messages": [{"role": "user", "content": prompt}],
           })
-          curl_out = subprocess.check_output(
-              [
-                  "curl", "-sS", "-L", "-w", "\n%{http_code}",
-                  "-X", "POST", "https://models.github.ai/inference/chat/completions",
-                  "-H", "Content-Type: application/json",
-                  "-H", f"Authorization: Bearer {TOKEN}",
-                  "-d", payload,
-              ],
-              text=True,
-              timeout=30,
-          )
-          resp_body, _, http_code = curl_out.rpartition("\n")
-          if http_code.strip() != "200":
-              raise RuntimeError(f"GitHub Models HTTP {http_code}: {resp_body[:500]!r}")
-          try:
-              ai_resp = json.loads(resp_body)
-          except json.JSONDecodeError as je:
-              raise RuntimeError(f"GitHub Models non-JSON ({http_code}): {resp_body[:500]!r}") from je
-          raw = ai_resp["choices"][0]["message"]["content"].strip()
+
+          def call_ai():
+              curl_out = subprocess.check_output(
+                  [
+                      "curl", "-sS", "-w", "\n%{http_code}",
+                      "-X", "POST", "https://models.github.ai/inference/chat/completions",
+                      "-H", "Content-Type: application/json",
+                      "-H", f"Authorization: Bearer {TOKEN}",
+                      "-d", payload,
+                  ],
+                  text=True,
+                  timeout=30,
+              )
+              resp_body, _, http_code = curl_out.rpartition("\n")
+              if http_code.strip() == "200":
+                  try:
+                      return json.loads(resp_body)["choices"][0]["message"]["content"].strip()
+                  except (json.JSONDecodeError, KeyError, IndexError):
+                      pass
+              print(f"Direct API returned ({http_code}): {resp_body[:200]!r}; trying gh models...")
+              subprocess.run(["gh", "extension", "install", "github/gh-models"], check=False, capture_output=True)
+              gh_env = {**os.environ, "GH_TOKEN": TOKEN}
+              res = subprocess.run(
+                  ["gh", "models", "run", "openai/gpt-4o-mini", prompt],
+                  env=gh_env,
+                  text=True,
+                  capture_output=True,
+                  timeout=45,
+              )
+              if res.returncode == 0 and res.stdout.strip():
+                  return res.stdout.strip()
+              raise RuntimeError(f"gh models failed ({res.returncode}): {res.stderr[:300]!r}")
+
+          raw = call_ai()
           match = re.search(r"\[.*\]", raw, re.S)
           if not match:
               raise RuntimeError(f"Unexpected model output: {raw}")
