@@ -252,7 +252,7 @@ void models_reset() {
     g_skel_history.clear();
 }
 
-void interpolate_model_keeper(CPU& c, uint64_t keeper) {
+void interpolate_model_keeper(CPU& c, uint64_t keeper, int32_t draw_buf_idx) {
     if (!keeper) return;
     const uint64_t ctrl = ld<uint64_t>(keeper + 0x18);
     if (!ctrl) return;
@@ -306,26 +306,39 @@ void interpolate_model_keeper(CPU& c, uint64_t keeper) {
         h.tick = g_logic_tick;
     }
 
-    if (h.moving && g_alpha < 0.999f && h.blended_frame != g_render_frame) {
-        float* dst = reinterpret_cast<float*>(world_addr);
-        if (!h.applied) {
-            std::memcpy(h.saved.data(), dst, floats * sizeof(float));
-            h.world_addr = world_addr;
-            h.applied = true;
-            g_blended_skels.push_back(&h);
+    if (h.moving && h.blended_frame != g_render_frame) {
+        const float a = std::clamp(g_alpha, 0.0f, 1.0f);
+        if (a < 0.999f) {
+            float* dst = reinterpret_cast<float*>(world_addr);
+            if (!h.applied) {
+                std::memcpy(h.saved.data(), dst, floats * sizeof(float));
+                h.world_addr = world_addr;
+                h.applied = true;
+                g_blended_skels.push_back(&h);
+            }
+            const float* p = h.prev.data();
+            const float* q = h.curr.data();
+            for (size_t k = 0; k < floats; ++k) dst[k] = p[k] + (q[k] - p[k]) * a;
         }
-        const float a = g_alpha;
-        const float* p = h.prev.data();
-        const float* q = h.curr.data();
-        for (size_t k = 0; k < floats; ++k) dst[k] = p[k] + (q[k] - p[k]) * a;
 
-        const uint32_t buf_idx = ld<uint32_t>(buf_idx_ptr);
-        c.x[0] = model_obj;
-        c.x[1] = buf_idx;
-        g_fn_model_calc_skeleton(c);
-        c.x[0] = model_obj;
-        c.x[1] = buf_idx;
-        g_fn_model_calc_shape(c);
+        const uint32_t calc_idx = ld<uint32_t>(buf_idx_ptr);
+        const uint32_t target_idx = draw_buf_idx >= 0 ? uint32_t(draw_buf_idx) : calc_idx;
+        if (a < 0.999f || target_idx != calc_idx) {
+            c.x[0] = model_obj;
+            c.x[1] = target_idx;
+            g_fn_model_calc_skeleton(c);
+            c.x[0] = model_obj;
+            c.x[1] = target_idx;
+            g_fn_model_calc_shape(c);
+            if (a < 0.999f && target_idx != calc_idx) {
+                c.x[0] = model_obj;
+                c.x[1] = calc_idx;
+                g_fn_model_calc_skeleton(c);
+                c.x[0] = model_obj;
+                c.x[1] = calc_idx;
+                g_fn_model_calc_shape(c);
+            }
+        }
         h.blended_frame = g_render_frame;
     }
 }
@@ -342,6 +355,12 @@ void interpolate_model_drawer(CPU& c, uint64_t drawer) {
         return;
     }
 
+    int32_t draw_buf_idx = -1;
+    const uint64_t gfx_info = ld<uint64_t>(drawer + 0x18);
+    const uint64_t view_holder = gfx_info ? ld<uint64_t>(gfx_info + 0xb8) : 0;
+    const uint64_t draw_ctx = view_holder ? ld<uint64_t>(view_holder + 0x10) : 0;
+    if (draw_ctx) draw_buf_idx = ld<int32_t>(draw_ctx + 0xb0);
+
     // al::ModelDrawer layout:
     //   drawer + 0x24 -> int32_t m_cnt, + 0x28 -> ModelKeeper** items
     //   drawer + 0x30 -> ModelGroupArray { int32_t count; pad; ModelGroup** items; }
@@ -353,7 +372,7 @@ void interpolate_model_drawer(CPU& c, uint64_t drawer) {
     const uint64_t direct_items = ld<uint64_t>(drawer + 0x28);
     if (direct_cnt > 0 && direct_cnt <= 4096 && direct_items) {
         for (int32_t m = 0; m < direct_cnt; ++m) {
-            interpolate_model_keeper(c, ld<uint64_t>(direct_items + uint64_t(m) * 8));
+            interpolate_model_keeper(c, ld<uint64_t>(direct_items + uint64_t(m) * 8), draw_buf_idx);
         }
     }
 
@@ -370,7 +389,7 @@ void interpolate_model_drawer(CPU& c, uint64_t drawer) {
             if (m_cnt <= 0 || m_cnt > 4096 || !m_items) continue;
 
             for (int32_t m = 0; m < m_cnt; ++m) {
-                interpolate_model_keeper(c, ld<uint64_t>(m_items + uint64_t(m) * 8));
+                interpolate_model_keeper(c, ld<uint64_t>(m_items + uint64_t(m) * 8), draw_buf_idx);
             }
         }
     }
