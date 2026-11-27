@@ -143,11 +143,47 @@ jobs:
                   return res.stdout.strip()
               raise RuntimeError(f"gh models failed ({res.returncode}): {res.stderr[:300]!r}")
 
-          raw = call_ai()
-          match = re.search(r"\[.*\]", raw, re.S)
-          if not match:
-              raise RuntimeError(f"Unexpected model output: {raw}")
-          chosen = [x for x in json.loads(match.group(0)) if x in LABELS]
+          def fallback_labels(title_text, body_text):
+              text = f"{title_text}\n{body_text}".lower()
+              picks = []
+              rules = [
+                  ("windows", ("windows", "win10", "win11", ".exe", "exfat", "ntfs", "amdvlk64.dll")),
+                  ("linux", ("linux", "appimage", "steam deck", "steamos", "ubuntu", "arch", "fedora", "wayland", "x11")),
+                  ("amd", ("amd", "radeon", "rx ", "amdvlk", "radv", "0x1002")),
+                  ("intel", ("intel", "arc ", "uhd ", "iris ", "0x8086")),
+                  ("nvidia", ("nvidia", "rtx", "gtx", "geforce", "0x10de")),
+                  ("performance", ("fps", "stutter", "1% low", "frame", "lag", "slow", "hz")),
+                  ("rendering", ("vulkan", "shader", "pipeline", "glitch", "flicker", "render", "texture", "hdr", "fsr", "fxaa")),
+                  ("aspect-ratio", ("16:10", "21:9", "32:9", "ultrawide", "aspect", "stretch", "hud", "ui cut")),
+                  ("setup", ("setup", "romfs", "exefs", "gamebuild", "dump", "external drive", "exfat", "fat32", "build id")),
+                  ("launcher", ("launcher", "profile", "save", "gamedata.bin", "update", "updater")),
+                  ("online", ("online", "nextendo", "multiplayer", "npln", "network")),
+                  ("bowsers-fury", ("bowser's fury", "bowsers fury", "fury")),
+                  ("input", ("controller", "gamepad", "xbox", "playstation", "dualsense", "pro controller", "keyboard", "rumble")),
+                  ("audio", ("audio", "sound", "music", "crackling", "crackl", "mute", "volume")),
+              ]
+              for label, kws in rules:
+                  if any(k in text for k in kws):
+                      picks.append(label)
+              is_enh = any(k in text for k in ("support for", "feature", "request", "add ", "implement", "suggestion", "enhancement"))
+              is_bug = any(k in text for k in ("crash", "error", "fail", "bug", "broken", "freeze", "hang", "not working", "can't", "cannot"))
+              if is_bug and not is_enh:
+                  picks.insert(0, "bug")
+              elif is_enh:
+                  picks.insert(0, "enhancement")
+              elif not picks:
+                  picks.append("bug")
+              return picks[:5]
+
+          try:
+              raw = call_ai()
+              match = re.search(r"\[.*\]", raw, re.S)
+              if not match:
+                  raise RuntimeError(f"Unexpected model output: {raw}")
+              chosen = [x for x in json.loads(match.group(0)) if x in LABELS]
+          except Exception as e:
+              print(f"AI triage unavailable ({e}); using keyword fallback.")
+              chosen = fallback_labels(title, body)
           to_add = [x for x in chosen if x not in existing_on_issue]
           print(f"AI chose: {chosen} | adding: {to_add}")
           if not to_add:
