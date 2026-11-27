@@ -178,9 +178,16 @@ def inspect_exefs(exefs):
         return info
 
     if IS_SM3DW:
-        info["version"] = "SM3DW"
-        info["expected_romfs_product"] = 1
-        info["compatible"] = True
+        bid = info["build_id"]
+        if bid == "9F7EFC2FB9653E5CDE03030478F23EDA7D18EF44":
+            info["version"] = "1.0.0"
+            info["expected_romfs_product"] = 1
+            info["compatible"] = True
+        else:
+            info["error"] = (
+                f"error: ExeFS has unsupported main Build ID {bid[:16]} "
+                f"(only Super Mario 3D World + Bowser's Fury 1.0.0 is supported)"
+            )
         return info
 
     bid = info["build_id"]

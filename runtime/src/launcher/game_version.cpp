@@ -173,10 +173,17 @@ ExefsInfo inspect_exefs(const fs::path& dir) {
     }
 
     if (is_sm3dw()) {
-        info.compatible = true;
-        info.version = "SM3DW";
-        info.expected_romfs_product = 1;
-        info.summary = "Compatible (Build ID " + info.build_id.substr(0, 16) + ")";
+        static constexpr const char* kSm3dw100BuildId = "9F7EFC2FB9653E5CDE03030478F23EDA7D18EF44";
+        if (info.build_id == kSm3dw100BuildId) {
+            info.compatible = true;
+            info.version = "1.0.0";
+            info.expected_romfs_product = 1;
+            info.summary = "1.0.0 (Compatible)";
+        } else {
+            info.compatible = false;
+            info.version = "Unknown";
+            info.summary = "Unsupported version (Build ID " + info.build_id.substr(0, 16) + " - only 1.0.0 is supported)";
+        }
         return info;
     }
 
