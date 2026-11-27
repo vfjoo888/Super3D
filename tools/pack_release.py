@@ -40,9 +40,9 @@ import tarfile
 import zipfile
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-GAME = "wonder"
+GAME = "Super3D"
 WIN = os.name == "nt"
-TOP = "SuperWonders"
+TOP = "Super3D"
 PY_MODULES = ("capstone", "lz4", "zstandard", "fontTools")
 
 
@@ -159,8 +159,11 @@ def pack_kit(kit, a):
     copy(os.path.join(REPO, "tools", "nso2bin.py"), os.path.join(kit, "tools", "nso2bin.py"))
     copy(os.path.join(REPO, "tools", "fonts", "make_button_font.py"), os.path.join(kit, "tools", "fonts", "make_button_font.py"))
     copy(os.path.join(REPO, "tools", "wonder_menu_mod.py"), os.path.join(kit, "tools", "wonder_menu_mod.py"))
-    for f in ("wonder_uw_map_hud.py", "wonder_uw_screen_backgrounds.py", "wonder_uw_prepare.py", "renodx_wonder.py"):
-        copy(os.path.join(REPO, "tools", f), os.path.join(kit, "tools", f))
+    for f in ("wonder_uw_map_hud.py", "wonder_uw_screen_backgrounds.py", "wonder_uw_prepare.py", "renodx_wonder.py",
+              "patch_super3d_uw.py", "super3d_uw_layouts.py"):
+        p = os.path.join(REPO, "tools", f)
+        if os.path.isfile(p):
+            copy(p, os.path.join(kit, "tools", f))
     open(os.path.join(kit, "tools", "__init__.py"), "w").close()
     for f in glob.glob(os.path.join(REPO, "tools", "maxwell", "*.py")):
         copy(f, os.path.join(kit, "tools", "maxwell", os.path.basename(f)))
@@ -240,11 +243,11 @@ def recomplauncher_json(version):
     return {
         "$schema": "https://recomplauncher.com/schema/recomplauncher.json",
         "format": 1,
-        "name": "SuperWonders",
+        "name": "Super3D",
         "repo": "vfjoo888/Super3D",
         "game": {
             "kind": "folder",
-            "label": "Your Super Mario Bros. Wonder game files, extracted, version 1.0.0 or 1.2.1: a folder holding exefs and romfs.",
+            "label": "Your Super Mario 3D World + Bowser's Fury game files, extracted: a folder holding exefs and romfs.",
             "check": {"file": "exefs/main"},
         },
         "prepare": {
@@ -311,7 +314,7 @@ def recomplauncher_json(version):
         ],
         "saves": ["{install}/data/user/save"],
         "folders": {"logs": "{install}/data"},
-        "exit_codes": {"0": "ok", "1": "SuperWonders stopped with an error: its log is data/nx.log"},
+        "exit_codes": {"0": "ok", "1": "Super3D stopped with an error: its log is data/nx.log"},
         "requires": ["start", "settings.ini", "settings.choices", "files.folder"],
     }
 
@@ -438,7 +441,7 @@ def write_manifest(folder, version):
 
 def archive(out, folder, version):
     if WIN:
-        name = f"SuperWonders-v{version}-Windows-x64.zip"
+        name = f"Super3D-v{version}-Windows-x64.zip"
         with zipfile.ZipFile(os.path.join(out, name), "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
             for base, dirs, files in os.walk(folder):
                 dirs.sort()
@@ -446,7 +449,7 @@ def archive(out, folder, version):
                     p = os.path.join(base, f)
                     z.write(p, TOP + "/" + os.path.relpath(p, folder).replace(os.sep, "/"))
     else:
-        name = f"SuperWonders-v{version}-Linux-x64.tar.gz"
+        name = f"Super3D-v{version}-Linux-x64.tar.gz"
         with tarfile.open(os.path.join(out, name), "w:gz") as t:
             t.add(folder, arcname=TOP)
     return os.path.join(out, name)
