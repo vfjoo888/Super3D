@@ -8,5 +8,5 @@ cd "$(dirname "$0")/../.."
 : "${TRANSLATOR:?TRANSLATOR=<a published linux-x64 spirv_harness (dotnet publish ... -r linux-x64 --self-contained)>}"
 podman build -q -t localhost/superwonders-build:amd64 -f tools/linux/Containerfile tools/linux >/dev/null
 TR=$(realpath "$TRANSLATOR")
-podman run --rm -v "$PWD:/src" -v "$TR:/translator:ro" -w /src -e TRANSLATOR=/translator -e REPO="${REPO-vfjoo888/SuperWonders}" \
+podman run --rm -v "$PWD:/src" -v "$TR:/translator:ro" -w /src -e TRANSLATOR=/translator -e REPO="${REPO-vfjoo888/Super3D}" \
     localhost/superwonders-build:amd64 tools/linux/package.sh

@@ -241,7 +241,7 @@ def recomplauncher_json(version):
         "$schema": "https://recomplauncher.com/schema/recomplauncher.json",
         "format": 1,
         "name": "SuperWonders",
-        "repo": "vfjoo888/SuperWonders",
+        "repo": "vfjoo888/Super3D",
         "game": {
             "kind": "folder",
             "label": "Your Super Mario Bros. Wonder game files, extracted, version 1.0.0 or 1.2.1: a folder holding exefs and romfs.",
@@ -457,7 +457,7 @@ def main():
     ap.add_argument("--build", required=True, help="a build folder with NX_GAME_LIBRARY=ON")
     ap.add_argument("--out", required=True)
     ap.add_argument("--version", default=open(os.path.join(REPO, "VERSION")).read().strip())
-    ap.add_argument("--repo", default="vfjoo888/SuperWonders", help="the GitHub repository SuperWonders Update checks (owner/name)")
+    ap.add_argument("--repo", default="vfjoo888/Super3D", help="the GitHub repository Super3D Update checks (owner/name)")
     ap.add_argument("--sign", help="the repository owner's release key (PEM): writes <archive>.sig (docs/RELEASES.md)")
     ap.add_argument("--pubkey", default="", help="the release key's public half (tools/sign_update.py --public), for "
                                                   "update.ini: then only releases signed with it are installed")
@@ -492,7 +492,7 @@ def main():
     with open(os.path.join(folder, "VERSION"), "w", newline="\n") as f:
         f.write(a.version + "\n")
     with open(os.path.join(folder, "update.ini"), "w", newline="\n") as f:
-        f.write("# SuperWonders Update checks this GitHub repository's releases. Empty: no checks.\n"
+        f.write("# Super3D Update checks this GitHub repository's releases. Empty: no checks.\n"
                 f"repo={a.repo}\n"
                 "# The repository owner's release key, public half (docs/RELEASES.md). Set: only releases signed with\n"
                 "# it are installed. Empty: GitHub's SHA-256 of the file alone is checked.\n"

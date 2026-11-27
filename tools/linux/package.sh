@@ -9,7 +9,7 @@
 # time, as the program does). Its data is never inside the image: $XDG_DATA_HOME/superwonders (platform_linux.cpp).
 #
 # TRANSLATOR=<dir>: a published linux-x64 spirv_harness (dotnet publish tools/maxwell/spirv_harness -r linux-x64
-# --self-contained: it cross-publishes from any OS). REPO=<owner/name>: what update.ini names (default: vfjoo888/SuperWonders; empty disables updates).
+# --self-contained: it cross-publishes from any OS). REPO=<owner/name>: what update.ini names (default: vfjoo888/Super3D; empty disables updates).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 L=$PWD/build/linux/x86_64
@@ -85,7 +85,7 @@ find "$PYDIR" -type l | while read -r l; do t=$(readlink -f "$l"); rm "$l"; cp "
 find "$T" -type l | while read -r l; do t=$(readlink -f "$l"); rm "$l"; cp "$t" "$l"; done
 
 # ---- the release folder and the portable archive (tools/pack_release.py)
-"$PY" tools/pack_release.py --build "$B" --out "$L/release" --version "$VERSION" --repo "${REPO-vfjoo888/SuperWonders}" \
+"$PY" tools/pack_release.py --build "$B" --out "$L/release" --version "$VERSION" --repo "${REPO-vfjoo888/Super3D}" \
     --translator "$TRANSLATOR" --linux-toolchain "$T" --linux-python "$PYDIR"
 mkdir -p "$OUTDIR" && mv "$L/release/$NAME.tar.gz" "$OUTDIR/"
 
