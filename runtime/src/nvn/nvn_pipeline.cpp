@@ -1094,6 +1094,8 @@ VkPipeline graphics_pipeline(const PipelineKey& draw_key, const ProgramLayout& l
     };
     static std::unordered_map<Key, Entry, ByteKeyHash> cache;
     static std::pair<const Key, Entry>* last = nullptr;  // entries are never erased
+    constexpr size_t kL1Slots = 256;
+    static std::pair<const Key, Entry>* l1[kL1Slots] = {};
     auto current = [&](Entry& e) {
         if (e.optimised && e.optimised->finished.load(std::memory_order_acquire)) {
             AsyncPipeline& a = *e.optimised;
@@ -1114,18 +1116,19 @@ VkPipeline graphics_pipeline(const PipelineKey& draw_key, const ProgramLayout& l
     Key k{};
     std::memcpy(k.b, key.vs->hash.data(), 16);
     if (key.fs) std::memcpy(k.b + 16, key.fs->hash.data(), 16);
-    PipelineKey state_key{};
-    std::memcpy(&state_key, &key, sizeof key);
-    state_key.vs = state_key.fs = nullptr;
-    std::memcpy(k.b + 32, &state_key, sizeof state_key);
+    std::memcpy(k.b + 32, &key, sizeof key);
+    std::memset(k.b + 32, 0, 2 * sizeof(const ShaderInfo*));  // zero vs/fs pointers
     // A stage that gained an integer texture record has another module (nvn_spirv_int_textures.cpp).
     const uint32_t generations[2] = {int_texture_generation(key.vs), key.fs ? int_texture_generation(key.fs) : 0u};
-    std::memcpy(k.b + 32 + sizeof state_key, generations, sizeof generations);
+    std::memcpy(k.b + 32 + sizeof key, generations, sizeof generations);
     if (last && std::memcmp(k.b, last->first.b, sizeof k.b) == 0) return current(last->second);
-    if (auto it = cache.find(k); it != cache.end()) return current((last = &*it)->second);
+    const size_t h_l1 = hash_bytes(k.b, sizeof k.b) & (kL1Slots - 1);
+    if (auto* slot = l1[h_l1]; slot && std::memcmp(k.b, slot->first.b, sizeof k.b) == 0)
+        return current((last = slot)->second);
+    if (auto it = cache.find(k); it != cache.end()) return current((last = l1[h_l1] = &*it)->second);
     auto store = [&](VkPipeline p, std::shared_ptr<AsyncPipeline> optimised = nullptr) {
         auto it = cache.emplace(k, Entry{p, std::move(optimised)}).first;
-        return (last = &*it)->second.pipeline;
+        return (last = l1[h_l1] = &*it)->second.pipeline;
     };
     // A compile already on a worker (nvn_pipeline_async.cpp): its pipeline when done, else skip or wait.
     static std::unordered_map<Key, std::shared_ptr<AsyncPipeline>, ByteKeyHash> pending;

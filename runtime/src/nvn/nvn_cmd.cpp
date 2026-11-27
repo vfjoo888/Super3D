@@ -37,6 +37,7 @@ struct CommandBuffer : Object {
     uint64_t command_base = 0, control_base = 0;  // usage before this recording
     uint64_t command_memory = 0;                  // the memory added last: its GPU address (see AddCommandMemory)
     uint64_t command_pool = 0;                    // its NVNmemoryPool*
+    size_t last_cmd_cap = 256;                    // pre-reserve capacity across recordings
 };
 
 constexpr uint64_t kCommandBytes = 16, kControlBytes = 4;  // per recorded command
@@ -123,6 +124,7 @@ void note_drop(uint64_t h, const HandleEntry& e, uint64_t by, uint64_t by_start,
     if (by == ~0ull) g_pool_drops++;
     else if (by) g_overlap_drops++;
     else g_aged++, g_aged_called += e.calls != 0;
+    if (by && !drops_on()) return;
     Dropped d{h,     by,       e.start, e.end,   e.pool, e.cb, e.calls, by_start, by_end, by_pool,
               by_cb, float(e.t), float(seconds_now())};
     if (!by) {  // few: kept by handle (the ring below is overwritten by later handles' overlap drops)
@@ -146,6 +148,7 @@ void CommandBufferBeginRecording(CPU& c) {
     if (auto* cb = get<CommandBuffer>(c.x[0])) {
         std::lock_guard lk(cb->lock);
         cb->recording = std::make_shared<CmdList>();
+        cb->recording->cmds.reserve(cb->last_cmd_cap);
     }
 }
 
@@ -195,12 +198,14 @@ bool skinned_program(uint64_t program) {
 
 void CommandBufferEndRecording(CPU& c) {  // NVNcommandHandle
     std::shared_ptr<CmdList> list = std::make_shared<CmdList>();
-    list->cmds.reserve(64);
     uint64_t start = 0, end = 0, pool = 0;
     const uint64_t cb_guest = c.x[0];
     if (auto* cb = get<CommandBuffer>(c.x[0])) {
         std::lock_guard lk(cb->lock);
-        size_t n = cb->recording->cmds.size() + 1;  // + the end of the list, so even an empty one used something
+        const size_t cmds_n = cb->recording->cmds.size();
+        if (cmds_n > cb->last_cmd_cap) cb->last_cmd_cap = std::min<size_t>(cmds_n, 16384);
+        list->cmds.reserve(cb->last_cmd_cap);
+        size_t n = cmds_n + 1;  // + the end of the list, so even an empty one used something
         start = cb->command_memory + cb->command_base;
         pool = cb->command_pool;
         cb->command_base = used(cb->command_size, cb->command_base, n, kCommandBytes);
@@ -265,7 +270,7 @@ void CommandBufferEndRecording(CPU& c) {  // NVNcommandHandle
             }
         }
         g_regions[start] = {end, h};
-        g_handles[h] = {list, now, 0, start, end, pool, cb_guest, seconds_now(), 0};
+        g_handles[h] = {list, now, 0, start, end, pool, cb_guest, drops_on() ? seconds_now() : 0.0, 0};
         g_handle_order.push_back({h, now});
         // The safety net (see handles_old): over the limit of live lists, the oldest not called since they were
         // queued go. The queue's entries of lists already dropped are compacted away when they outnumber the live.
@@ -366,15 +371,31 @@ void SetScissor(CPU& c) {
 
 void CallCommands(CPU& c) {
     uint32_t n = uint32_t(c.x[1]);
+    if (!n) return;
     g_calls += n;
-    for (uint32_t k = 0; k < n; k++) {
-        Cmd cmd{Cmd::CallList};
-        cmd.a[0] = ld<uint64_t>(c.x[2] + 8 * k);
-        record(c.x[0], cmd);
-        if (skin_lists_on())
-            if (auto l = peek_list(cmd.a[0]); l && l->skinned && g_skin_calls++ < 40)
-                log("skinlists: handle %llx called from cmd %llx", (unsigned long long)cmd.a[0],
+    auto* cb = get<CommandBuffer>(c.x[0]);
+    if (!cb) {
+        g_no_cb += n;
+        return;
+    }
+    const bool skin = skin_lists_on();
+    {
+        std::lock_guard lk(cb->lock);
+        auto& cmds = cb->recording->cmds;
+        cmds.reserve(cmds.size() + n);
+        for (uint32_t k = 0; k < n; k++) {
+            Cmd cmd{Cmd::CallList};
+            cmd.a[0] = ld<uint64_t>(c.x[2] + 8 * k);
+            cmds.push_back(cmd);
+        }
+    }
+    if (skin) {
+        for (uint32_t k = 0; k < n; k++) {
+            const uint64_t h = ld<uint64_t>(c.x[2] + 8 * k);
+            if (auto l = peek_list(h); l && l->skinned && g_skin_calls++ < 40)
+                log("skinlists: handle %llx called from cmd %llx", (unsigned long long)h,
                     (unsigned long long)c.x[0]);
+        }
     }
 }
 
@@ -449,6 +470,28 @@ void skin_list_replayed(const CmdList& list, int depth) {
 }
 
 std::shared_ptr<CmdList> command_list(uint64_t handle) {
+    if (uint64_t serial = t_replay_serial; serial != 0) {
+        struct ReplayListSlot {
+            uint64_t serial = 0, handle = 0;
+            std::shared_ptr<CmdList> list;
+        };
+        constexpr uint32_t kReplayListSlots = 2048;
+        thread_local ReplayListSlot table[kReplayListSlots];
+        ReplayListSlot& s = table[(handle * 0x9E3779B97F4A7C15ull >> 53) & (kReplayListSlots - 1)];
+        if (s.serial == serial && s.handle == handle) return s.list;
+        std::shared_ptr<CmdList> res;
+        {
+            std::lock_guard lk(g_handles_lock);
+            auto it = g_handles.find(handle);
+            if (it != g_handles.end()) {
+                it->second.used = ++g_handle_clock;
+                it->second.calls++;
+                res = it->second.list;
+            }
+        }
+        if (res) s = {serial, handle, res};
+        return res;
+    }
     std::lock_guard lk(g_handles_lock);
     auto it = g_handles.find(handle);
     if (it == g_handles.end()) return nullptr;

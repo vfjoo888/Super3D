@@ -27,10 +27,10 @@ bool g_started = false;
 
 bool enabled() {
     static const bool on = [] {
-        // Off unless NX_REPLAY_THREAD=1: high-FPS skeleton/camera interpolation mutates guest UBOs
-        // (e.g. draw_buf_idx=0 MtxBlock) every frame, which races with an asynchronous replay thread.
+        // Enabled by default (NX_REPLAY_THREAD=0 disables): games/super3d/game.cpp waits for
+        // pending submits before mutating interpolated UBOs, so gpu_present + pace_present overlap safely.
         const char* e = std::getenv("NX_REPLAY_THREAD");
-        return e && e[0] == '1';
+        return !(e && e[0] == '0');
     }();
     return on;
 }

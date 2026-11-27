@@ -207,8 +207,16 @@ struct ConstantsBlock {
     std::array<uint8_t, 0x1000> bytes;
 };
 constexpr size_t kBlocks = 512;  // 4K render_scale creates many distinct render_scale slot masks per submit
+constexpr size_t kBlockTable = 1024;
+struct BlockIndexSlot {
+    uint32_t gen = 0;
+    uint32_t idx = 0;
+};
 std::vector<std::unique_ptr<SupportBlock>> g_support;
 std::vector<std::unique_ptr<ConstantsBlock>> g_constants;
+BlockIndexSlot g_support_ht[kBlockTable];
+BlockIndexSlot g_constants_ht[kBlockTable];
+uint32_t g_block_gen = 1;
 size_t g_support_used = 0, g_constants_used = 0;
 
 uint64_t hash_bytes64(const void* data, size_t bytes, uint64_t seed = 0xCBF29CE484222325ull) {
@@ -223,17 +231,22 @@ uint64_t hash_bytes64(const void* data, size_t bytes, uint64_t seed = 0xCBF29CE4
 
 const SupportBuffer* support_block(const SupportBuffer& key) {
     const uint64_t h = hash_bytes64(&key, sizeof key);
-    for (size_t k = 0; k < g_support_used; k++) {
-        if (g_support[k]->hash != h) continue;
-        const SupportBuffer& sb = g_support[k]->sb;
-        if (std::memcmp(&sb, &key, sizeof key) == 0) return &sb;
+    uint32_t probe = uint32_t(h) & (kBlockTable - 1);
+    for (;; probe = (probe + 1) & (kBlockTable - 1)) {
+        BlockIndexSlot& sl = g_support_ht[probe];
+        if (sl.gen != g_block_gen) {
+            if (g_support_used == kBlocks) return nullptr;
+            if (g_support_used == g_support.size()) g_support.push_back(std::make_unique<SupportBlock>());
+            const uint32_t idx = uint32_t(g_support_used++);
+            SupportBlock& b = *g_support[idx];
+            b.hash = h;
+            b.sb = key;
+            sl = {g_block_gen, idx};
+            return &b.sb;
+        }
+        const SupportBlock& b = *g_support[sl.idx];
+        if (b.hash == h && std::memcmp(&b.sb, &key, sizeof key) == 0) return &b.sb;
     }
-    if (g_support_used == kBlocks) return nullptr;
-    if (g_support_used == g_support.size()) g_support.push_back(std::make_unique<SupportBlock>());
-    SupportBlock& b = *g_support[g_support_used++];
-    b.hash = h;
-    b.sb = key;
-    return &b.sb;
 }
 
 const uint8_t* constants_block(ShaderStage stage, int st) {
@@ -241,18 +254,25 @@ const uint8_t* constants_block(ShaderStage stage, int st) {
     int hw = stage == ShaderStage::Fragment ? 4 : 0;
     const Range* key = g_state.storage[st];
     const uint64_t h = hash_bytes64(key, sizeof(Range) * 16, uint64_t(hw) + 0x9E3779B97F4A7C15ull);
-    for (size_t k = 0; k < g_constants_used; k++)
-        if (g_constants[k]->hash == h && g_constants[k]->hw == hw &&
-            std::memcmp(g_constants[k]->storage, key, sizeof g_constants[k]->storage) == 0)
-            return g_constants[k]->bytes.data();
-    if (g_constants_used == kBlocks) return nullptr;
-    if (g_constants_used == g_constants.size()) g_constants.push_back(std::make_unique<ConstantsBlock>());
-    ConstantsBlock& b = *g_constants[g_constants_used++];
-    b.hash = h;
-    b.hw = hw;
-    std::memcpy(b.storage, key, sizeof b.storage);
-    b.bytes = driver_constants(stage, st);
-    return b.bytes.data();
+    uint32_t probe = uint32_t(h) & (kBlockTable - 1);
+    for (;; probe = (probe + 1) & (kBlockTable - 1)) {
+        BlockIndexSlot& sl = g_constants_ht[probe];
+        if (sl.gen != g_block_gen) {
+            if (g_constants_used == kBlocks) return nullptr;
+            if (g_constants_used == g_constants.size()) g_constants.push_back(std::make_unique<ConstantsBlock>());
+            const uint32_t idx = uint32_t(g_constants_used++);
+            ConstantsBlock& b = *g_constants[idx];
+            b.hash = h;
+            b.hw = hw;
+            std::memcpy(b.storage, key, sizeof b.storage);
+            b.bytes = driver_constants(stage, st);
+            sl = {g_block_gen, idx};
+            return b.bytes.data();
+        }
+        const ConstantsBlock& b = *g_constants[sl.idx];
+        if (b.hash == h && b.hw == hw && std::memcmp(b.storage, key, sizeof b.storage) == 0)
+            return b.bytes.data();
+    }
 }
 
 // The buffer a descriptor points to: `bytes` copied into the upload buffer (at least 16 bytes, zero padded).
@@ -823,6 +843,11 @@ void sets_begin_submit() {
     g_bound_desc = BoundDesc{};
     g_set_generation++, g_set_used = 0, g_set_arena.clear();
     g_support_used = g_constants_used = 0;
+    if (++g_block_gen == 0) {
+        std::memset(g_support_ht, 0, sizeof g_support_ht);
+        std::memset(g_constants_ht, 0, sizeof g_constants_ht);
+        g_block_gen = 1;
+    }
 }
 
 void sets_log() {

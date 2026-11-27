@@ -29,6 +29,7 @@ namespace nx {
 
 namespace nvn {
 int frame_cap();
+void wait_submits_so_far(int site);
 }
 
 namespace {
@@ -270,6 +271,7 @@ void interpolate_model_keeper(CPU& c, uint64_t keeper, int32_t draw_buf_idx) {
     const size_t floats = size_t(bones) * 16;
     const float* world = reinterpret_cast<const float*>(world_addr);
     SkelHistory& h = g_skel_history[skel];
+    if (h.tick == g_logic_tick && (!h.moving || h.blended_frame == g_render_frame)) return;
 
     if (h.tick != g_logic_tick) {
         const bool continuous = (h.tick != 0 && h.tick + 1 == g_logic_tick && h.bones == bones);
@@ -293,7 +295,7 @@ void interpolate_model_keeper(CPU& c, uint64_t keeper, int32_t draw_buf_idx) {
             const float dz = h.curr[14] - h.prev[14];
             h.has_prev = (dx * dx + dy * dy + dz * dz) <= kTeleportDistSq;
             bool changed = false;
-            if (h.has_prev) {
+            if (h.has_prev && std::memcmp(h.prev.data(), h.curr.data(), floats * sizeof(float)) != 0) {
                 const float* p = h.prev.data();
                 const float* q = h.curr.data();
                 for (size_t k = 0; k < floats; ++k) {
@@ -514,6 +516,9 @@ void run_pre_draw_graphics(CPU& c, uint64_t kit) {
 }
 
 void hook_game_system_movement(CPU& c) {
+    // Ensure the async NVN replay thread has finished reading the previous frame's guest UBOs
+    // before restoring/mutating camera and skeleton matrices (gpu_present + pace_present still overlap).
+    if (high_fps_interp_enabled()) nvn::wait_submits_so_far(0);
     // Always restore true camera and skeleton state before simulation or graphics replay.
     camera_restore();
     models_restore();
