@@ -1161,23 +1161,25 @@ void video(MenuContext& c, const Labels& l) {
         settings_changed(true);
         ui::notify(aspect_desc);
     }
-    // the window's size: four presets matching the selected aspect ratio, or the current custom size as a fifth
+    // the window's size: presets matching the selected aspect ratio, or the current custom size as an extra entry
     const int aspect_idx = std::clamp(s.aspect_ratio, 0, 2);
-    char preset_labels[4][24];
-    const char* sizes[5] = {};
+    char preset_labels[kWindowSizePresetCount][24];
+    const char* sizes[kWindowSizePresetCount + 1] = {};
     char custom[32];
     int size = -1;
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < kWindowSizePresetCount; ++i) {
         const int pw = kWindowSizesByAspect[aspect_idx][i][0];
         const int ph = kWindowSizesByAspect[aspect_idx][i][1];
         std::snprintf(preset_labels[i], sizeof preset_labels[i], "%d x %d", pw, ph);
         sizes[i] = preset_labels[i];
         if (pw == s.width && ph == s.height) size = i;
     }
-    int n = 4;
-    if (size < 0) std::snprintf(custom, sizeof custom, "%d x %d", s.width, s.height), sizes[4] = custom, size = 4, n = 5;
+    int n = kWindowSizePresetCount;
+    if (size < 0)
+        std::snprintf(custom, sizeof custom, "%d x %d", s.width, s.height), sizes[kWindowSizePresetCount] = custom,
+        size = kWindowSizePresetCount, n = kWindowSizePresetCount + 1;
     if (!c.host.can_resize || s.fullscreen) rows::disable_next();
-    if (rows::choice(l.window_size, &size, sizes, n, 0, translated_desc(desc::window_size, lang)) && size < 4)
+    if (rows::choice(l.window_size, &size, sizes, n, 0, translated_desc(desc::window_size, lang)) && size < kWindowSizePresetCount)
         s.width = kWindowSizesByAspect[aspect_idx][size][0],
         s.height = kWindowSizesByAspect[aspect_idx][size][1],
         settings_changed(true);
