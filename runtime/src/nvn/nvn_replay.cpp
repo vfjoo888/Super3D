@@ -55,8 +55,8 @@ void replay_list(VkCommandBuffer cb, Targets& st, const CmdList& list, int depth
                 for (uint32_t k = 0; k < 8; k++) st.colors[k] = k < c.n ? c.a[k] : 0;
                 st.depth = c.a[8];
                 st.views = {};
-                if (c.blob < list.blobs.size() && list.blobs[c.blob].size() == sizeof(TargetViews))
-                    std::memcpy(&st.views, list.blobs[c.blob].data(), sizeof st.views);
+                if (c.blob < list.blobs.size() && list.blob_len(c.blob) == sizeof(TargetViews))
+                    std::memcpy(&st.views, list.blob_ptr(c.blob), sizeof st.views);
                 break;
             }
             case Cmd::ClearColor:

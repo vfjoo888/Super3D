@@ -70,9 +70,9 @@ uint64_t g_same_image = 0, g_same_overlap = 0;
 void replay_copy(VkCommandBuffer cb, const Cmd& c, const CmdList& list) {
     static const bool off = std::getenv("NX_NO_COPY") != nullptr;  // debug: skip texture copies
     if (off) return;
-    if (c.blob >= list.blobs.size() || list.blobs[c.blob].size() != sizeof(CopyInfo)) return;
+    if (c.blob >= list.blobs.size() || list.blob_len(c.blob) != sizeof(CopyInfo)) return;
     CopyInfo info;
-    std::memcpy(&info, list.blobs[c.blob].data(), sizeof info);
+    std::memcpy(&info, list.blob_ptr(c.blob), sizeof info);
     GpuImage* src = ensure_contents(cb, c.a[0]);
     GpuImage* dst = ensure_contents(cb, c.a[1]);
     if (!src || !dst) return;

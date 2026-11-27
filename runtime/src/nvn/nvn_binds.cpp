@@ -24,20 +24,32 @@ namespace {
 
 void bind_ranges(CPU& c, Cmd::Op op) {
     int32_t stage = int32_t(c.x[1]), first = int32_t(c.x[2]), count = int32_t(c.x[3]);
-    for (int32_t k = 0; k < count && c.x[4]; k++) {
-        Cmd cmd{op};
-        cmd.i[0] = stage, cmd.i[1] = first + k;
-        cmd.a[0] = ld<uint64_t>(c.x[4] + 16ull * k), cmd.a[1] = ld<uint64_t>(c.x[4] + 16ull * k + 8);
-        static int terrain_logs = 0;
-        const char* terrain_trigger = std::getenv("NX_TERRAIN_BIND_TRACE");
-        FILE* terrain_file = terrain_trigger && terrain_logs < 8 && op == Cmd::BindUniformBuffer && stage == 0 && first + k == 4 && cmd.a[1] == 57408 ? std::fopen(terrain_trigger, "rb") : nullptr;
-        if (terrain_file) {
-            std::fclose(terrain_file);
-            ++terrain_logs;
-            log("terrain bind plural: address=%llx size=%llu lr=%s", (unsigned long long)cmd.a[0], (unsigned long long)cmd.a[1], describe(c.x[30]).c_str());
-            backtrace(c);
+    if (count <= 0 || !c.x[4]) return;
+    static const char* terrain_trigger = std::getenv("NX_TERRAIN_BIND_TRACE");
+    static int terrain_logs = 0;
+    Cmd stack_cmds[32];
+    int32_t done = 0;
+    while (done < count) {
+        int32_t batch = std::min<int32_t>(count - done, 32);
+        for (int32_t j = 0; j < batch; j++) {
+            const int32_t k = done + j;
+            Cmd& cmd = stack_cmds[j];
+            cmd = Cmd{op};
+            cmd.i[0] = stage, cmd.i[1] = first + k;
+            cmd.a[0] = ld<uint64_t>(c.x[4] + 16ull * k), cmd.a[1] = ld<uint64_t>(c.x[4] + 16ull * k + 8);
+            if (terrain_trigger && terrain_logs < 8 && op == Cmd::BindUniformBuffer && stage == 0 && first + k == 4 &&
+                cmd.a[1] == 57408) {
+                if (FILE* terrain_file = std::fopen(terrain_trigger, "rb")) {
+                    std::fclose(terrain_file);
+                    ++terrain_logs;
+                    log("terrain bind plural: address=%llx size=%llu lr=%s", (unsigned long long)cmd.a[0],
+                        (unsigned long long)cmd.a[1], describe(c.x[30]).c_str());
+                    backtrace(c);
+                }
+            }
         }
-        record(c.x[0], cmd);
+        record_batch(c.x[0], stack_cmds, size_t(batch));
+        done += batch;
     }
 }
 
@@ -75,21 +87,39 @@ void BindStorageBuffers(CPU& c) { bind_ranges(c, Cmd::BindStorageBuffer); }
 
 void BindTextures(CPU& c) {
     int32_t stage = int32_t(c.x[1]), first = int32_t(c.x[2]), count = int32_t(c.x[3]);
-    for (int32_t k = 0; k < count && c.x[4]; k++) {
-        Cmd cmd{Cmd::BindTexture};
-        cmd.i[0] = stage, cmd.i[1] = first + k;
-        cmd.a[0] = ld<uint64_t>(c.x[4] + 8ull * k);
-        record(c.x[0], cmd);
+    if (count <= 0 || !c.x[4]) return;
+    Cmd stack_cmds[32];
+    int32_t done = 0;
+    while (done < count) {
+        int32_t batch = std::min<int32_t>(count - done, 32);
+        for (int32_t j = 0; j < batch; j++) {
+            const int32_t k = done + j;
+            Cmd& cmd = stack_cmds[j];
+            cmd = Cmd{Cmd::BindTexture};
+            cmd.i[0] = stage, cmd.i[1] = first + k;
+            cmd.a[0] = ld<uint64_t>(c.x[4] + 8ull * k);
+        }
+        record_batch(c.x[0], stack_cmds, size_t(batch));
+        done += batch;
     }
 }
 
 void BindVertexBuffers(CPU& c) {
     int32_t first = int32_t(c.x[1]), count = int32_t(c.x[2]);
-    for (int32_t k = 0; k < count && c.x[3]; k++) {
-        Cmd cmd{Cmd::BindVertexBuffer};
-        cmd.i[0] = first + k;
-        cmd.a[0] = ld<uint64_t>(c.x[3] + 16ull * k), cmd.a[1] = ld<uint64_t>(c.x[3] + 16ull * k + 8);
-        record(c.x[0], cmd);
+    if (count <= 0 || !c.x[3]) return;
+    Cmd stack_cmds[32];
+    int32_t done = 0;
+    while (done < count) {
+        int32_t batch = std::min<int32_t>(count - done, 32);
+        for (int32_t j = 0; j < batch; j++) {
+            const int32_t k = done + j;
+            Cmd& cmd = stack_cmds[j];
+            cmd = Cmd{Cmd::BindVertexBuffer};
+            cmd.i[0] = first + k;
+            cmd.a[0] = ld<uint64_t>(c.x[3] + 16ull * k), cmd.a[1] = ld<uint64_t>(c.x[3] + 16ull * k + 8);
+        }
+        record_batch(c.x[0], stack_cmds, size_t(batch));
+        done += batch;
     }
 }
 

@@ -297,8 +297,8 @@ void replay_clear_texture(VkCommandBuffer cb, const Cmd& c, const CmdList& list)
     GpuImage* img = c.a[0] ? image_of(c.a[0]) : nullptr;
     if (!img) return;
     ViewInfo v{};
-    if (c.blob < list.blobs.size() && list.blobs[c.blob].size() == sizeof(ViewInfo))
-        std::memcpy(&v, list.blobs[c.blob].data(), sizeof v);
+    if (c.blob < list.blobs.size() && list.blob_len(c.blob) == sizeof(ViewInfo))
+        std::memcpy(&v, list.blob_ptr(c.blob), sizeof v);
     uint32_t base_level = std::min(v.base_level, img->levels - 1);
     uint32_t level_count = v.levels ? std::min(v.levels, img->levels - base_level) : img->levels - base_level;
     uint32_t base_layer = std::min(v.min_layer, img->layers - 1);

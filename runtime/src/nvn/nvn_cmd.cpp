@@ -38,6 +38,8 @@ struct CommandBuffer : Object {
     uint64_t command_memory = 0;                  // the memory added last: its GPU address (see AddCommandMemory)
     uint64_t command_pool = 0;                    // its NVNmemoryPool*
     size_t last_cmd_cap = 256;                    // pre-reserve capacity across recordings
+    size_t last_blob_cap = 64;
+    size_t last_blob_bytes = 2048;
 };
 
 constexpr uint64_t kCommandBytes = 16, kControlBytes = 4;  // per recorded command
@@ -149,6 +151,8 @@ void CommandBufferBeginRecording(CPU& c) {
         std::lock_guard lk(cb->lock);
         cb->recording = std::make_shared<CmdList>();
         cb->recording->cmds.reserve(cb->last_cmd_cap);
+        cb->recording->blobs.reserve(cb->last_blob_cap);
+        cb->recording->blob_arena.reserve(cb->last_blob_bytes);
     }
 }
 
@@ -203,8 +207,14 @@ void CommandBufferEndRecording(CPU& c) {  // NVNcommandHandle
     if (auto* cb = get<CommandBuffer>(c.x[0])) {
         std::lock_guard lk(cb->lock);
         const size_t cmds_n = cb->recording->cmds.size();
+        const size_t blobs_n = cb->recording->blobs.size();
+        const size_t arena_n = cb->recording->blob_arena.size();
         if (cmds_n > cb->last_cmd_cap) cb->last_cmd_cap = std::min<size_t>(cmds_n, 16384);
+        if (blobs_n > cb->last_blob_cap) cb->last_blob_cap = std::min<size_t>(blobs_n, 4096);
+        if (arena_n > cb->last_blob_bytes) cb->last_blob_bytes = std::min<size_t>(arena_n, 262144);
         list->cmds.reserve(cb->last_cmd_cap);
+        list->blobs.reserve(cb->last_blob_cap);
+        list->blob_arena.reserve(cb->last_blob_bytes);
         size_t n = cmds_n + 1;  // + the end of the list, so even an empty one used something
         start = cb->command_memory + cb->command_base;
         pool = cb->command_pool;
@@ -409,11 +419,28 @@ void record(uint64_t guest, Cmd cmd, const void* blob, size_t size) {
     }
     std::lock_guard lk(cb->lock);
     if (blob) {
-        cmd.blob = uint32_t(cb->recording->blobs.size());
-        auto* p = static_cast<const uint8_t*>(blob);
-        cb->recording->blobs.emplace_back(p, p + size);
+        auto& rec = *cb->recording;
+        const uint32_t off = uint32_t(rec.blob_arena.size());
+        cmd.blob = uint32_t(rec.blobs.size());
+        rec.blobs.push_back({off, uint32_t(size)});
+        if (size) {
+            auto* p = static_cast<const uint8_t*>(blob);
+            rec.blob_arena.insert(rec.blob_arena.end(), p, p + size);
+        }
     }
     cb->recording->cmds.push_back(cmd);
+}
+
+void record_batch(uint64_t guest, const Cmd* cmds, size_t count) {
+    if (!count) return;
+    auto* cb = get<CommandBuffer>(guest);
+    if (!cb) {
+        g_no_cb += count;
+        return;
+    }
+    std::lock_guard lk(cb->lock);
+    auto& dst = cb->recording->cmds;
+    dst.insert(dst.end(), cmds, cmds + count);
 }
 
 // A handle's list for the traces, without marking it used (which would keep it from being dropped).

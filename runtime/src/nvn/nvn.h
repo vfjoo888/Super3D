@@ -369,9 +369,16 @@ struct Cmd {
     uint32_t blob = 0;  // index into CmdList::blobs (decoded state, inline data)
 };
 
+struct BlobSlice {
+    uint32_t offset = 0;
+    uint32_t size = 0;
+};
 struct CmdList {
     std::vector<Cmd> cmds;
-    std::vector<std::vector<uint8_t>> blobs;
+    std::vector<BlobSlice> blobs;
+    std::vector<uint8_t> blob_arena;
+    const uint8_t* blob_ptr(uint32_t idx) const { return blob_arena.data() + blobs[idx].offset; }
+    uint32_t blob_len(uint32_t idx) const { return blobs[idx].size; }
     uint64_t handle = 0;     // its NVNcommandHandle
     uint64_t epoch = 0;      // the texture epoch when its recording ended (nvn_incarnation.cpp): what its draws name
     uint32_t skinned = 0;    // NX_TRACE_SKINLISTS: binds of skinned programs (a vertex input at location 6) in it
@@ -426,6 +433,7 @@ void command_memory_released(uint64_t gpu, uint64_t size);  // a pool finalized:
 void static_buf_invalidate(uint64_t host_addr, uint64_t size);  // persistent static VB/IB cache invalidation (nvn_dedup.cpp)
 // Appends to the command buffer (guest NVNcommandBuffer*) being recorded; `blob` is copied into the list.
 void record(uint64_t cmdbuf, Cmd cmd, const void* blob = nullptr, size_t size = 0);
+void record_batch(uint64_t cmdbuf, const Cmd* cmds, size_t count);
 
 // ---- the GPU (nvn_vk.cpp) -------------------------------------------------------------------------------------
 
