@@ -1,4 +1,5 @@
 #include "user_profiles.h"
+#include <nx/game.h>
 #include <filesystem>
 #include <string_view>
 static inline std::filesystem::path nx_u8path(std::string_view s) { return std::filesystem::path(std::u8string_view(reinterpret_cast<const char8_t*>(s.data()), s.size())); }
@@ -199,19 +200,22 @@ bool import_save(const std::filesystem::path& root, const std::filesystem::path&
                  const User& destination, std::filesystem::path& backup, std::string& error) {
     namespace fs = std::filesystem;
     backup.clear(); error.clear();
-    auto has_sav = [](const fs::path& dir) {
+    const bool sm3dw = game::kInfo.program_id == 0x010028600EBDA000ull;
+    auto has_save = [sm3dw](const fs::path& dir) {
         std::error_code ec;
         if (!fs::is_directory(dir, ec) || ec) return false;
+        if (sm3dw) return fs::is_regular_file(dir / "GameData.bin", ec) && !ec;
         for (const auto& entry : fs::directory_iterator(dir, ec)) {
             if (!ec && entry.is_regular_file(ec) && entry.path().extension() == ".sav") return true;
         }
         return false;
     };
     fs::path from = source_dir;
-    if (!has_sav(from)) {
-        if (has_sav(source_dir / "0")) from = source_dir / "0";
+    if (!has_save(from)) {
+        if (has_save(source_dir / "0")) from = source_dir / "0";
         else {
-            error = "Selected folder does not contain Wonder save files (*.sav).";
+            error = sm3dw ? "Selected folder does not contain Super3D save files (GameData.bin)."
+                          : "Selected folder does not contain Wonder save files (*.sav).";
             return false;
         }
     }
@@ -222,10 +226,12 @@ std::vector<EmulatorSave> detect_emulator_saves() {
     namespace fs = std::filesystem;
     std::vector<EmulatorSave> out;
     std::error_code ec;
+    const bool sm3dw = game::kInfo.program_id == 0x010028600EBDA000ull;
 
-    auto is_wonder_save = [](const fs::path& dir) {
+    auto is_game_save = [sm3dw](const fs::path& dir) {
         std::error_code lec;
         if (!fs::is_directory(dir, lec) || lec) return false;
+        if (sm3dw) return fs::is_regular_file(dir / "GameData.bin", lec) && !lec;
         return fs::is_regular_file(dir / "game_data.sav", lec) && !lec &&
                fs::is_regular_file(dir / "game_account.sav", lec) && !lec;
     };
@@ -241,31 +247,41 @@ std::vector<EmulatorSave> detect_emulator_saves() {
         return id.substr(0, 4) + "..." + id.substr(id.size() - 4);
     };
 
-    std::vector<fs::path> eden_roots;
-    std::vector<fs::path> ryu_roots;
+    struct Root { const char* name; fs::path path; };
+    std::vector<Root> nand_roots;
+    std::vector<Root> ryu_roots;
+    static constexpr std::pair<const char*, const char*> kNandEmus[] = {
+        {"Eden", "eden"}, {"Yuzu", "yuzu"}, {"Sudachi", "sudachi"}, {"Suyu", "suyu"}, {"Citron", "citron"},
+    };
 #ifdef _WIN32
     if (const char* appdata = std::getenv("APPDATA"); appdata && *appdata) {
         const fs::path base(appdata);
-        eden_roots.push_back(base / "eden" / "nand" / "user" / "save");
-        ryu_roots.push_back(base / "Ryujinx" / "bis" / "user" / "save");
-        ryu_roots.push_back(base / "Ryubing" / "bis" / "user" / "save");
+        for (const auto& [name, dir] : kNandEmus)
+            nand_roots.push_back({name, base / dir / "nand" / "user" / "save"});
+        ryu_roots.push_back({"Ryujinx", base / "Ryujinx" / "bis" / "user" / "save"});
+        ryu_roots.push_back({"Ryubing", base / "Ryubing" / "bis" / "user" / "save"});
     }
 #else
     const char* home = std::getenv("HOME");
     const char* xdg_data = std::getenv("XDG_DATA_HOME");
     const char* xdg_cfg = std::getenv("XDG_CONFIG_HOME");
-    if (xdg_data && *xdg_data) eden_roots.push_back(fs::path(xdg_data) / "eden" / "nand" / "user" / "save");
-    else if (home && *home) eden_roots.push_back(fs::path(home) / ".local" / "share" / "eden" / "nand" / "user" / "save");
-    if (xdg_cfg && *xdg_cfg) {
-        ryu_roots.push_back(fs::path(xdg_cfg) / "Ryujinx" / "bis" / "user" / "save");
-        ryu_roots.push_back(fs::path(xdg_cfg) / "Ryubing" / "bis" / "user" / "save");
-    } else if (home && *home) {
-        ryu_roots.push_back(fs::path(home) / ".config" / "Ryujinx" / "bis" / "user" / "save");
-        ryu_roots.push_back(fs::path(home) / ".config" / "Ryubing" / "bis" / "user" / "save");
+    const fs::path data_base = xdg_data && *xdg_data ? fs::path(xdg_data)
+                                                     : (home && *home ? fs::path(home) / ".local" / "share" : fs::path{});
+    const fs::path cfg_base = xdg_cfg && *xdg_cfg ? fs::path(xdg_cfg)
+                                                  : (home && *home ? fs::path(home) / ".config" : fs::path{});
+    if (!data_base.empty()) {
+        for (const auto& [name, dir] : kNandEmus)
+            nand_roots.push_back({name, data_base / dir / "nand" / "user" / "save"});
+    }
+    if (!cfg_base.empty()) {
+        ryu_roots.push_back({"Ryujinx", cfg_base / "Ryujinx" / "bis" / "user" / "save"});
+        ryu_roots.push_back({"Ryubing", cfg_base / "Ryubing" / "bis" / "user" / "save"});
     }
 #endif
 
-    for (const auto& save_root : eden_roots) {
+    const char* tids[2] = {sm3dw ? "010028600EBDA000" : "010015100B514000",
+                           sm3dw ? "010028600ebda000" : "010015100b514000"};
+    for (const auto& [emu_name, save_root] : nand_roots) {
         ec.clear();
         if (!fs::is_directory(save_root, ec) || ec) continue;
         for (const auto& acct : fs::directory_iterator(save_root, ec)) {
@@ -276,17 +292,18 @@ std::vector<EmulatorSave> detect_emulator_saves() {
                 if (dec) break;
                 std::error_code uec;
                 if (!uid_dir.is_directory(uec) || uec) continue;
-                for (const char* tid : {"010015100B514000", "010015100b514000"}) {
+                for (const char* tid : tids) {
                     const fs::path candidate = uid_dir.path() / tid;
-                    if (is_wonder_save(candidate)) {
-                        add_unique("Eden (" + short_id(uid_dir.path().filename().string()) + ")", candidate);
+                    if (is_game_save(candidate)) {
+                        add_unique(std::string(emu_name) + " (" + short_id(uid_dir.path().filename().string()) + ")",
+                                   candidate);
                     }
                 }
             }
         }
     }
 
-    for (const auto& save_root : ryu_roots) {
+    for (const auto& [emu_name, save_root] : ryu_roots) {
         ec.clear();
         if (!fs::is_directory(save_root, ec) || ec) continue;
         for (const auto& slot_parent : fs::directory_iterator(save_root, ec)) {
@@ -295,12 +312,12 @@ std::vector<EmulatorSave> detect_emulator_saves() {
             if (!slot_parent.is_directory(sec) || sec) continue;
             const fs::path slot0 = slot_parent.path() / "0";
             const fs::path slot1 = slot_parent.path() / "1";
-            const fs::path candidate = is_wonder_save(slot0) ? slot0 : (is_wonder_save(slot1) ? slot1 : fs::path{});
+            const fs::path candidate = is_game_save(slot0) ? slot0 : (is_game_save(slot1) ? slot1 : fs::path{});
             if (!candidate.empty()) {
                 std::string id = slot_parent.path().filename().string();
                 size_t nz = id.find_first_not_of('0');
                 if (nz != std::string::npos) id = id.substr(nz);
-                add_unique("Ryubing (save " + id + ")", candidate);
+                add_unique(std::string(emu_name) + " (save " + id + ")", candidate);
             }
         }
     }
