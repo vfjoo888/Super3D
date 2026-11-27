@@ -11,7 +11,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # runtime is the rest. One build directory per game.
 set(NX_GAME "hades" CACHE STRING "Game to build (a folder under games/)")
 set(NX_GAME_DIR "${CMAKE_SOURCE_DIR}/games/${NX_GAME}")
-if(WIN32 AND (NX_GAME STREQUAL "wonder" OR NX_GAME STREQUAL "sm3dw"))
+if(NX_GAME STREQUAL "sm3dw" AND NOT EXISTS "${NX_GAME_DIR}/game.cpp")
+    set(NX_GAME_DIR "${CMAKE_SOURCE_DIR}/games/super3d")
+endif()
+if(WIN32 AND (NX_GAME STREQUAL "wonder" OR NX_GAME STREQUAL "sm3dw" OR NX_GAME STREQUAL "super3d"))
     enable_language(RC)
 endif()
 if(NOT EXISTS "${NX_GAME_DIR}/game.cpp")
@@ -346,7 +349,7 @@ set_source_files_properties(runtime/src/overlay/overlay_vk.cpp PROPERTIES
     COMPILE_DEFINITIONS "IMGUI_IMPL_VULKAN_NO_PROTOTYPES")
 file(GLOB NX_GAME_SOURCES CONFIGURE_DEPENDS "${NX_GAME_DIR}/*.cpp")
 list(APPEND NX_RUNTIME_SOURCES ${NX_GAME_SOURCES} ${NX_SHADER_SOURCES} runtime/src/gamelib.cpp)
-if(NX_GAME_LIBRARY OR NX_GAME STREQUAL "sm3dw")
+if(NX_GAME_LIBRARY OR NX_GAME STREQUAL "sm3dw" OR NX_GAME STREQUAL "super3d")
     set(NX_HAS_LAUNCHER ON)
     # Launcher: the start screen before the game (setup, settings, mods, updates; launcher/launcher.h)
     list(APPEND NX_RUNTIME_SOURCES runtime/src/launcher/launcher.cpp runtime/src/launcher/game_version.cpp
@@ -505,7 +508,7 @@ else()
                     "$<TARGET_FILE:${NX_GAME}>" "$<TARGET_FILE_DIR:${NX_GAME}>/wonder-launcher.exe"
                 VERBATIM)
         endif()
-        if(NX_GAME STREQUAL "sm3dw")
+        if(NX_GAME STREQUAL "sm3dw" OR NX_GAME STREQUAL "super3d")
             file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}/assets/super3d_app.ico" WONDER_APP_ICON_PATH)
             configure_file(assets/wonder_app.rc.in "${CMAKE_CURRENT_BINARY_DIR}/super3d_app.rc" @ONLY)
             target_sources(${NX_GAME} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/super3d_app.rc")
@@ -528,7 +531,7 @@ else()
     endif()
 endif()
 
-if(NX_GAME STREQUAL "sm3dw")
+if(NX_GAME STREQUAL "sm3dw" OR NX_GAME STREQUAL "super3d")
     set_target_properties(${NX_GAME} PROPERTIES OUTPUT_NAME "Super3D")
     add_custom_command(TARGET ${NX_GAME} POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different

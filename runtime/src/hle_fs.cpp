@@ -22,6 +22,7 @@ static inline std::filesystem::path nx_u8path(std::string_view s) { return std::
 #include <unistd.h>
 #endif
 
+#include "bffnt_button_remap.h"
 #include <nx/runtime.h>
 #include <nx/game.h>
 
@@ -308,6 +309,34 @@ void OpenFile(CPU& c) {  // (FileHandle* out, path, int mode: 1 read, 2 write, 4
         return;
     }
     FILE* f = plat::fopen_utf8(utf8(p), (mode & 2) ? "r+b" : "rb");
+#if (defined(__linux__) && !defined(__ANDROID__)) || defined(_WIN32)
+    if (f && guest.size() >= 13 && guest.compare(guest.size() - 13, 13, "/FontData.szs") == 0) {
+        const plat::ButtonPromptConfig cfg = plat::button_prompt_config();
+        const bool default_nintendo = (cfg.style == 1 && cfg.bindings[0] == 1 && cfg.bindings[1] == 0 &&
+                                       cfg.bindings[2] == 3 && cfg.bindings[3] == 2);
+        if (!default_nintendo) {
+            std::fseek(f, 0, SEEK_END);
+            const long sz = std::ftell(f);
+            std::fseek(f, 0, SEEK_SET);
+            if (sz > 0 && sz < 32 * 1024 * 1024) {
+                std::vector<uint8_t> raw((size_t(sz)));
+                if (std::fread(raw.data(), 1, raw.size(), f) == raw.size()) {
+                    std::vector<uint8_t> patched;
+                    if (remap_font_data_szs(raw, cfg.style, cfg.bindings, patched)) {
+                        if (FILE* vf = std::tmpfile()) {
+                            std::fwrite(patched.data(), 1, patched.size(), vf);
+                            std::fflush(vf);
+                            std::fclose(f);
+                            f = vf;
+                            log("fs: remapped FontData.szs button icons (style %d)", cfg.style);
+                        }
+                    }
+                }
+            }
+            if (f) std::fseek(f, 0, SEEK_SET);
+        }
+    }
+#endif
     if (!f) {
         c.x[0] = kPathNotFound;
         return;
