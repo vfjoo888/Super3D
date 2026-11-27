@@ -567,13 +567,16 @@ void install_high_fps_hooks() {
     const bool ok1 = install_hook(lm, kOffProcFrame, &hook_proc_frame, g_orig_proc_frame);
     const bool ok2 = install_hook(lm, kOffControllerMgrCalc, &hook_controller_calc, g_orig_controller_calc);
     const bool ok3 = install_hook(lm, kOffGameSystemMovement, &hook_game_system_movement, g_orig_game_system_movement);
-    bool ok4 = true;
+    int model_ok = 0;
     for (size_t i = 0; i < std::size(kOffModelDrawerDraws); ++i) {
-        ok4 &= install_hook(lm, kOffModelDrawerDraws[i], kModelDrawerHooks[i], g_orig_model_drawer_draws[i]);
+        if (install_hook(lm, kOffModelDrawerDraws[i], kModelDrawerHooks[i], g_orig_model_drawer_draws[i]))
+            ++model_ok;
     }
+    const bool ok4 = model_ok > 0;
     g_hooks_installed = ok1 && ok2 && ok3 && ok4;
-    log("sm3dw: high-fps hooks %s (procFrame=%d ctrl=%d move=%d model=%d)",
-        g_hooks_installed ? "installed" : "FAILED", ok1 ? 1 : 0, ok2 ? 1 : 0, ok3 ? 1 : 0, ok4 ? 1 : 0);
+    log("sm3dw: high-fps hooks %s (procFrame=%d ctrl=%d move=%d model=%d/%zu)",
+        g_hooks_installed ? "installed" : "FAILED", ok1 ? 1 : 0, ok2 ? 1 : 0, ok3 ? 1 : 0, model_ok,
+        std::size(kOffModelDrawerDraws));
 }
 
 }  // namespace
