@@ -117,6 +117,18 @@ struct ButtonPromptConfig {
 };
 ButtonPromptConfig button_prompt_config();
 bool upgrade_button_font(const std::string& out_path);
+struct SixAxisState {
+    float accel[3]{0.0f, 0.0f, -1.0f};
+    float gyro[3]{0.0f, 0.0f, 0.0f};
+    bool connected = false;
+};
+struct TouchPoint {
+    bool down = false;
+    int32_t x = 0;
+    int32_t y = 0;
+};
+bool read_sixaxis(unsigned player, SixAxisState& out);
+bool read_touch(TouchPoint& out);
 #endif
 bool fast_forward();  // held: the game runs unpaced (Tab on PC; false where there is no key for it)
 bool paused();        // true when pause_in_background is enabled and the window is unfocused or minimized

@@ -340,11 +340,94 @@ void ShowControllerSupportNoResult(CPU& c) {  // (const ControllerSupportArg&)
 }
 void GetTouchScreenState(CPU& c) {  // (TouchScreenState<N>* out)
     static std::atomic<int64_t> sample{1};
+    static bool was_down = false;
     if (c.x[0]) {
-        st<int64_t>(c.x[0], sample.fetch_add(1, std::memory_order_relaxed));
-        st<int32_t>(c.x[0] + 8, 0);  // count = 0 touches
+        const int64_t s = sample.fetch_add(1, std::memory_order_relaxed);
+        st<int64_t>(c.x[0], s);
+        TouchPoint tp{};
+#if (defined(__linux__) && !defined(__ANDROID__)) || defined(_WIN32)
+        if (!overlay::is_open() && !overlay::wants_keyboard()) read_touch(tp);
+#endif
+        if (tp.down) {
+            st<int32_t>(c.x[0] + 8, 1);  // count = 1
+            const uint64_t t = c.x[0] + 0x10;
+            st<int64_t>(t + 0x00, 16666667);  // deltaTime
+            st<uint32_t>(t + 0x08, was_down ? 0u : 1u);  // attributes: Start on press
+            st<uint32_t>(t + 0x0c, 0u);  // fingerId
+            st<int32_t>(t + 0x10, tp.x);
+            st<int32_t>(t + 0x14, tp.y);
+            st<int32_t>(t + 0x18, 16);
+            st<int32_t>(t + 0x1c, 16);
+            st<int32_t>(t + 0x20, 0);
+            was_down = true;
+        } else {
+            st<int32_t>(c.x[0] + 8, 0);
+            was_down = false;
+        }
     }
     c.x[0] = 0;
+}
+
+void GetSixAxisSensorHandles(CPU& c) {
+    // (SixAxisSensorHandle* out, int count, const NpadIdType& id, BitFlagSet<32, NpadStyleTag>) -> int
+    const uint64_t out = c.x[0];
+    const int count = int(c.x[1]);
+    const uint32_t id = c.x[2] ? ld<uint32_t>(c.x[2]) : 0u;
+    if (!out || count <= 0) { c.x[0] = 0; return; }
+    const uint32_t player = id < 8 ? id : 0u;
+    st<uint32_t>(out, player);
+    c.x[0] = 1;
+}
+
+void GetSixAxisSensorStates(CPU& c) {
+    // (SixAxisSensorState* out, int count, const SixAxisSensorHandle& handle) -> int
+    const uint64_t out = c.x[0];
+    const int count = int(c.x[1]);
+    const uint32_t player = c.x[2] ? std::min<uint32_t>(ld<uint32_t>(c.x[2]), 3u) : 0u;
+    if (!out || count <= 0) { c.x[0] = 0; return; }
+
+    static std::atomic<int64_t> sample[4]{};
+    static uint64_t last_ns[4]{};
+    static float angle[4][3]{};
+    const uint64_t now = monotonic_ns();
+    const uint64_t prev = last_ns[player];
+    last_ns[player] = now;
+    const int64_t dt_ns = (prev && now > prev && now - prev < 200'000'000ull) ? int64_t(now - prev) : 16666667;
+    const float dt_s = float(double(dt_ns) / 1e9);
+
+    SixAxisState sa{};
+#if (defined(__linux__) && !defined(__ANDROID__)) || defined(_WIN32)
+    if (!overlay::is_open() && !overlay::wants_keyboard()) read_sixaxis(player, sa);
+#endif
+    for (int i = 0; i < 3; ++i) angle[player][i] += sa.gyro[i] * dt_s;
+
+    // Simple orientation basis from integrated yaw/pitch/roll (turns -> radians).
+    constexpr float kTwoPi = 6.28318530718f;
+    const float rx = angle[player][0] * kTwoPi;
+    const float ry = angle[player][1] * kTwoPi;
+    const float rz = angle[player][2] * kTwoPi;
+    const float cx = std::cos(rx), sx = std::sin(rx);
+    const float cy = std::cos(ry), sy = std::sin(ry);
+    const float cz = std::cos(rz), sz = std::sin(rz);
+
+    std::memset(reinterpret_cast<void*>(out), 0, 0x60);
+    st<int64_t>(out + 0x00, dt_ns);
+    st<int64_t>(out + 0x08, sample[player].fetch_add(1, std::memory_order_relaxed) + 1);
+    for (int i = 0; i < 3; ++i) st<float>(out + 0x10 + size_t(i) * 4, sa.accel[i]);
+    for (int i = 0; i < 3; ++i) st<float>(out + 0x1c + size_t(i) * 4, sa.gyro[i]);
+    for (int i = 0; i < 3; ++i) st<float>(out + 0x28 + size_t(i) * 4, angle[player][i]);
+    // 3x3 direction matrix (R = Rz * Rx * Ry)
+    st<float>(out + 0x34, cz * cy - sz * sx * sy);
+    st<float>(out + 0x38, sz * cy + cz * sx * sy);
+    st<float>(out + 0x3c, -cx * sy);
+    st<float>(out + 0x40, -sz * cx);
+    st<float>(out + 0x44, cz * cx);
+    st<float>(out + 0x48, sx);
+    st<float>(out + 0x4c, cz * sy + sz * sx * cy);
+    st<float>(out + 0x50, sz * sy - cz * sx * cy);
+    st<float>(out + 0x54, cx * cy);
+    st<uint32_t>(out + 0x58, sa.connected ? 1u : 0u);
+    c.x[0] = 1;
 }
 void GetTouchScreenStates(CPU& c) {  // (TouchScreenState<N>* out, int count) -> int
     if (c.x[0] && int(c.x[1]) > 0) {
@@ -392,9 +475,9 @@ NX_HLE("_ZN2nn3hid20StopLrAssignmentModeEv", noop);
 NX_HLE("_ZN2nn3hid20GetNpadJoyAssignmentERKj", zero);  // dual
 NX_HLE("_ZN2nn3hid20IsVibrationPermittedEv", one);
 NX_HLE("_ZN2nn3hid18SendVibrationValueERKNS0_21VibrationDeviceHandleERKNS0_14VibrationValueE", SendVibrationValue);
-NX_HLE("_ZN2nn3hid23GetSixAxisSensorHandlesEPNS0_19SixAxisSensorHandleEiRKjNS_4util10BitFlagSetILi32ENS0_12NpadStyleTagEEE", noop);
+NX_HLE("_ZN2nn3hid23GetSixAxisSensorHandlesEPNS0_19SixAxisSensorHandleEiRKjNS_4util10BitFlagSetILi32ENS0_12NpadStyleTagEEE", GetSixAxisSensorHandles);
 NX_HLE("_ZN2nn3hid18StartSixAxisSensorERKNS0_19SixAxisSensorHandleE", noop);
-NX_HLE("_ZN2nn3hid22GetSixAxisSensorStatesEPNS0_18SixAxisSensorStateEiRKNS0_19SixAxisSensorHandleE", zero);
+NX_HLE("_ZN2nn3hid22GetSixAxisSensorStatesEPNS0_18SixAxisSensorStateEiRKNS0_19SixAxisSensorHandleE", GetSixAxisSensorStates);
 NX_HLE("_ZN2nn3hid21InitializeTouchScreenEv", noop);
 NX_HLE("_ZN2nn3hid6detail21InitializeTouchScreenEv", noop);
 NX_HLE("_ZN2nn3hid19GetTouchScreenStateILm1EEEvPNS0_16TouchScreenStateIXT_EEE", GetTouchScreenState);

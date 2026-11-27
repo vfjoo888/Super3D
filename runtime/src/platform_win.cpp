@@ -1273,6 +1273,13 @@ static void toggle_fullscreen(HWND h) {
     save_pc_settings();
 }
 
+static std::atomic<int> g_mouse_x{0};
+static std::atomic<int> g_mouse_y{0};
+static std::atomic<int> g_mouse_gyro_dx{0};
+static std::atomic<int> g_mouse_gyro_dy{0};
+static std::atomic<bool> g_mouse_left_down{false};
+static std::atomic<bool> g_mouse_has_pos{false};
+
 static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM w, LPARAM l) {
     if (msg == kOverlayApplyMessage) {
         std::unique_ptr<OverlayApply> a(reinterpret_cast<OverlayApply*>(l));
@@ -1322,6 +1329,22 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM w, LPARAM l) {
         }
     }
     switch (msg) {
+        case WM_MOUSEMOVE: {
+            const int mx = GET_X_LPARAM(l), my = GET_Y_LPARAM(l);
+            const int prev_x = g_mouse_x.exchange(mx, std::memory_order_relaxed);
+            const int prev_y = g_mouse_y.exchange(my, std::memory_order_relaxed);
+            if (g_mouse_has_pos.exchange(true, std::memory_order_relaxed)) {
+                g_mouse_gyro_dx.fetch_add(mx - prev_x, std::memory_order_relaxed);
+                g_mouse_gyro_dy.fetch_add(my - prev_y, std::memory_order_relaxed);
+            }
+            break;
+        }
+        case WM_LBUTTONDOWN:
+            g_mouse_left_down.store(true, std::memory_order_relaxed);
+            break;
+        case WM_LBUTTONUP:
+            g_mouse_left_down.store(false, std::memory_order_relaxed);
+            break;
         case WM_ACTIVATEAPP:
             g_window_focused.store(w != FALSE, std::memory_order_relaxed);
             set_game_volume();
@@ -1693,6 +1716,10 @@ static void scan_gamepads_locked() {
             if (!g_gamepads[slot]) {
                 g_gamepads[slot] = SDL_OpenGamepad(ids[i]);
                 if (g_gamepads[slot]) {
+                    if (SDL_GamepadHasSensor(g_gamepads[slot], SDL_SENSOR_GYRO))
+                        SDL_SetGamepadSensorEnabled(g_gamepads[slot], SDL_SENSOR_GYRO, true);
+                    if (SDL_GamepadHasSensor(g_gamepads[slot], SDL_SENSOR_ACCEL))
+                        SDL_SetGamepadSensorEnabled(g_gamepads[slot], SDL_SENSOR_ACCEL, true);
                     const char* name = SDL_GetGamepadName(g_gamepads[slot]);
                     log("hid: gamepad slot %zu connected: %s (type %d)", slot,
                         name ? name : "Controller", int(SDL_GetGamepadType(g_gamepads[slot])));
@@ -2186,6 +2213,60 @@ void read_pad(PadState& p) {
     if (mapped.ly) p.ly = mapped.ly;
     if (mapped.rx) p.rx = mapped.rx;
     if (mapped.ry) p.ry = mapped.ry;
+}
+
+bool read_sixaxis(unsigned player, SixAxisState& out) {
+    out = {};
+    if (player >= 4) return false;
+    constexpr float kInvTwoPi = 0.15915494309f;
+    constexpr float kInvG = 1.0f / 9.80665f;
+    const int slot = sample_players().slots[player];
+    if (slot >= 0 && slot < int(g_gamepads.size()) && g_gamepads[size_t(slot)]) {
+        SDL_Gamepad* pad = g_gamepads[size_t(slot)];
+        float gyro_rad[3]{}, accel_ms2[3]{};
+        if (SDL_GamepadSensorEnabled(pad, SDL_SENSOR_GYRO) &&
+            SDL_GetGamepadSensorData(pad, SDL_SENSOR_GYRO, gyro_rad, 3)) {
+            out.gyro[0] = gyro_rad[0] * kInvTwoPi;
+            out.gyro[1] = -gyro_rad[2] * kInvTwoPi;
+            out.gyro[2] = gyro_rad[1] * kInvTwoPi;
+            out.connected = true;
+        }
+        if (SDL_GamepadSensorEnabled(pad, SDL_SENSOR_ACCEL) &&
+            SDL_GetGamepadSensorData(pad, SDL_SENSOR_ACCEL, accel_ms2, 3)) {
+            out.accel[0] = -accel_ms2[0] * kInvG;
+            out.accel[1] = accel_ms2[2] * kInvG;
+            out.accel[2] = -accel_ms2[1] * kInvG;
+            out.connected = true;
+        }
+    }
+    if (player == 0 && !pc_menu_open()) {
+        const int dx = g_mouse_gyro_dx.exchange(0, std::memory_order_relaxed);
+        const int dy = g_mouse_gyro_dy.exchange(0, std::memory_order_relaxed);
+        if (dx != 0 || dy != 0) {
+            constexpr float kMouseGyroScale = 0.012f;
+            out.gyro[2] -= float(dx) * kMouseGyroScale;
+            out.gyro[0] -= float(dy) * kMouseGyroScale;
+            out.connected = true;
+        } else if (g_mouse_has_pos.load(std::memory_order_relaxed)) {
+            out.connected = true;
+        }
+    }
+    return out.connected;
+}
+
+bool read_touch(TouchPoint& out) {
+    out = {};
+    if (!g_mouse_left_down.load(std::memory_order_relaxed) || pc_menu_open() || !g_window) return false;
+    RECT client{};
+    if (!GetClientRect(g_window, &client)) return false;
+    const int cw = std::max(1, int(client.right - client.left));
+    const int ch = std::max(1, int(client.bottom - client.top));
+    const int mx = g_mouse_x.load(std::memory_order_relaxed);
+    const int my = g_mouse_y.load(std::memory_order_relaxed);
+    out.down = true;
+    out.x = std::clamp(mx * 1280 / cw, 0, 1279);
+    out.y = std::clamp(my * 720 / ch, 0, 719);
+    return true;
 }
 
 // ---- audio: XAudio2 -------------------------------------------------------------------------------------------

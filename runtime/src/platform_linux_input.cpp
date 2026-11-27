@@ -286,6 +286,8 @@ void read_pad_player(unsigned player, PadState& p) {
     std::lock_guard lk(g_pad_lock);
     if (player < g_players.size() && !overlay::is_open() && !overlay::wants_keyboard()) p = g_players[player];
 }
+bool read_sixaxis(unsigned /*player*/, SixAxisState& /*out*/) { return false; }
+bool read_touch(TouchPoint& /*out*/) { return false; }
 ButtonPromptConfig button_prompt_config() {
     std::array<int, 4> styles{};
     int active_slot = -1;
