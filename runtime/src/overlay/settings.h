@@ -27,7 +27,7 @@ enum Physical : int {
 
 struct Settings {
     int width = 1280, height = 720;
-    int aspect_ratio = 0;  // 0 original, 1 21:9, 2 32:9
+    int aspect_ratio = 0;  // 0 original, 1 21:9, 2 32:9, 3 16:10
     int monitor = 0;       // 0..N-1 display monitor index
     int internal_resolution = 0;  // svc_am.cpp presets: 0 original/dynamic, 1..5 720p..2160p, 6 native, 7 540p, 8 480p, 9 360p
     int volume = 100;
@@ -85,17 +85,18 @@ int controller_binding(const Settings& s, size_t action);
 int controller_preset_for_slot(const Settings& s, size_t slot);
 int controller_binding_for_slot(const Settings& s, size_t slot, size_t action);
 
-// Window size presets per aspect ratio (0: 16:9, 1: 21:9, 2: 32:9).
+// Window size presets per aspect ratio (0: 16:9, 1: 21:9, 2: 32:9, 3: 16:10).
 inline constexpr int kWindowSizePresetCount = 6;
-inline constexpr int kWindowSizesByAspect[3][kWindowSizePresetCount][2] = {
+inline constexpr int kWindowSizesByAspect[4][kWindowSizePresetCount][2] = {
     {{640, 360}, {960, 540}, {1280, 720}, {1600, 900}, {1920, 1080}, {2560, 1440}},
     {{854, 360}, {1280, 540}, {1706, 720}, {2134, 900}, {2560, 1080}, {3440, 1440}},
     {{1280, 360}, {1920, 540}, {2560, 720}, {3200, 900}, {3840, 1080}, {5120, 1440}},
+    {{640, 400}, {960, 600}, {1280, 800}, {1440, 900}, {1920, 1200}, {2560, 1600}},
 };
 
 inline void adjust_window_size_for_aspect(int new_aspect, int& width, int& height) {
-    const int dst = new_aspect < 0 ? 0 : new_aspect > 2 ? 2 : new_aspect;
-    for (int a = 0; a < 3; ++a) {
+    const int dst = new_aspect < 0 ? 0 : new_aspect > 3 ? 3 : new_aspect;
+    for (int a = 0; a < 4; ++a) {
         for (int i = 0; i < kWindowSizePresetCount; ++i) {
             if (kWindowSizesByAspect[a][i][0] == width && kWindowSizesByAspect[a][i][1] == height) {
                 width = kWindowSizesByAspect[dst][i][0];
@@ -106,7 +107,7 @@ inline void adjust_window_size_for_aspect(int new_aspect, int& width, int& heigh
     }
     if (height > 0) {
         const int num = dst == 1 ? 64 : dst == 2 ? 32 : 16;
-        const int den = dst == 1 ? 27 : 9;
+        const int den = dst == 1 ? 27 : dst == 3 ? 10 : 9;
         int w = (height * num + den / 2) / den;
         w &= ~1;
         if (w < 640) w = 640;

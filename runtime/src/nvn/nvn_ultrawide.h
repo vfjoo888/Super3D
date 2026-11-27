@@ -5,6 +5,7 @@
 // world keeps its height and shows more to the sides (Hor+). Off (the default): none of this runs.
 #pragma once
 
+#include <cmath>
 #include <cstdint>
 #include <vector>
 
@@ -13,8 +14,8 @@ namespace nx::nvn {
 struct ShaderInfo;
 struct Texture;
 
-float uw_factor();                        // k > 1 when on, 1 when off (decided once)
-inline bool uw_on() { return uw_factor() > 1.0f; }
+float uw_factor();                        // != 1 when aspect != 16:9, 1 when off (decided once)
+inline bool uw_on() { return std::fabs(uw_factor() - 1.0f) > 1e-3f; }
 uint32_t uw_widen(uint32_t w);            // the widened width of a 16:9-chain size
 bool uw_is_target(const Texture& t);      // classify without changing guest texture dimensions
 uint32_t uw_host_width(const Texture& t, float render_scale);

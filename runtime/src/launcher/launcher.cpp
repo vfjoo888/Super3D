@@ -1549,9 +1549,9 @@ void page_settings() {
         {"畫面比例", "將在下次啟動遊戲時生效。", "16:9 (原始)"},
     };
     const int lang = std::clamp(overlay::menu_language(), 0, 12);
-    const char* aspect_names[] = {kAspectText[lang][2], "21:9", "32:9"};
+    const char* aspect_names[] = {kAspectText[lang][2], "21:9", "32:9", "16:10"};
     int aspect = overlay::aspect_ratio();
-    if (rows::choice(kAspectText[lang][0], &aspect, aspect_names, 3, 0, kAspectText[lang][1]))
+    if (rows::choice(kAspectText[lang][0], &aspect, aspect_names, 4, 0, kAspectText[lang][1]))
         overlay::set_aspect_ratio(aspect);
     if (rows::action(lt(LtOpenSettings), "", "Display, graphics, audio, controls and the overlay: the same settings as "
                                           "the in-game menu (F1, or Minus + Plus held). Saved in pc-settings.ini.",

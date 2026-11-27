@@ -27,10 +27,11 @@ constexpr int kLanguageRight = 526;
 constexpr int kLanguageTop = 31;
 constexpr int kLanguageBottom = 66;
 constexpr int kLanguageItemHeight = 27;
-constexpr int kResolution[3][4][2] = {
+constexpr int kResolution[4][4][2] = {
     {{1280, 720}, {1600, 900}, {1920, 1080}, {2560, 1440}},
     {{1706, 720}, {2134, 900}, {2560, 1080}, {3440, 1440}},
     {{2560, 720}, {3200, 900}, {3840, 1080}, {5120, 1440}},
+    {{1280, 800}, {1440, 900}, {1920, 1200}, {2560, 1600}},
 };
 constexpr int kInternalOrder[10] = {0, 9, 8, 7, 1, 2, 3, 4, 5, 6};
 constexpr const wchar_t* kInternalResolution[13][10] = {
@@ -639,7 +640,7 @@ LRESULT CALLBACK menu_proc(HWND h, UINT msg, WPARAM w, LPARAM l) {
                 g_state.metric_frametime_graph = !g_state.metric_frametime_graph;
                 notify(true);
             } else if (g_section == Section::Video && y >= 183 && y <= 215 && x >= 416 && x <= 504) {
-                const auto& presets = kResolution[std::clamp(g_state.aspect_ratio, 0, 2)];
+                const auto& presets = kResolution[std::clamp(g_state.aspect_ratio, 0, 3)];
                 int current = 0;
                 for (int i = 1; i < 4; ++i)
                     if (std::abs(g_state.width - presets[i][0]) + std::abs(g_state.height - presets[i][1]) <

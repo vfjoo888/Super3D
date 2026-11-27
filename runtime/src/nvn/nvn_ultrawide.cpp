@@ -46,7 +46,8 @@ float init_factor() {
         if (wh) aspect = double(ww) / wh;
     }
     float k = float(aspect / k169);
-    if (k < 1.02f) k = 1.0f;  // 16:9 and narrower: nothing to do
+    if (std::fabs(k - 1.0f) < 0.02f) k = 1.0f;  // near 16:9: nothing to do
+    if (k < 0.5f) k = 0.5f;
     if (k > 3.0f) k = 3.0f;
     log("nvn: ultrawide: display aspect %.4f, render targets widened by %.4f", aspect, double(k));
     return k;
@@ -533,7 +534,7 @@ float uw_aspect_scale() {
 
 uint32_t uw_aspect_bits() {
     const float k = nvn::uw_factor();
-    if (k <= 1.0f) return 0x3fe38e39u;  // exact 16.0f / 9.0f
+    if (std::fabs(k - 1.0f) < 1e-4f) return 0x3fe38e39u;  // exact 16.0f / 9.0f
     const float aspect = float((16.0 / 9.0) * double(k));
     uint32_t bits = 0;
     std::memcpy(&bits, &aspect, sizeof bits);

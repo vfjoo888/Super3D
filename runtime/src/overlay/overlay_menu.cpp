@@ -1151,18 +1151,18 @@ void video(MenuContext& c, const Labels& l) {
         {"画面比例", "将在下次启动游戏时生效。", "16:9 (原始)"},
         {"畫面比例", "將在下次啟動遊戲時生效。", "16:9 (原始)"},
     };
-    const char* aspect_names[] = {kAspectText[lang][2], "21:9", "32:9"};
-    int aspect = std::max(0, s.aspect_ratio);
+    const char* aspect_names[] = {kAspectText[lang][2], "21:9", "32:9", "16:10"};
+    int aspect = std::clamp(s.aspect_ratio, 0, 3);
     const char* aspect_label = kAspectText[lang][0];
     const char* aspect_desc = kAspectText[lang][1];
-    if (rows::choice(aspect_label, &aspect, aspect_names, 3, 0, aspect_desc)) {
+    if (rows::choice(aspect_label, &aspect, aspect_names, 4, 0, aspect_desc)) {
         adjust_window_size_for_aspect(aspect, s.width, s.height);
         s.aspect_ratio = aspect;
         settings_changed(true);
         ui::notify(aspect_desc);
     }
     // the window's size: presets matching the selected aspect ratio, or the current custom size as an extra entry
-    const int aspect_idx = std::clamp(s.aspect_ratio, 0, 2);
+    const int aspect_idx = std::clamp(s.aspect_ratio, 0, 3);
     char preset_labels[kWindowSizePresetCount][24];
     const char* sizes[kWindowSizePresetCount + 1] = {};
     char custom[32];

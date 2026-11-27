@@ -412,10 +412,10 @@ void settings_changed(bool persist) {
     if (h.apply) h.apply(g_settings, persist);
 }
 
-int aspect_ratio() { return std::clamp(g_settings.aspect_ratio, 0, 2); }
+int aspect_ratio() { return std::clamp(g_settings.aspect_ratio, 0, 3); }
 
 void set_aspect_ratio(int ratio) {
-    const int clamped = std::clamp(ratio, 0, 2);
+    const int clamped = std::clamp(ratio, 0, 3);
     if (clamped != g_settings.aspect_ratio) {
         adjust_window_size_for_aspect(clamped, g_settings.width, g_settings.height);
         g_settings.aspect_ratio = clamped;

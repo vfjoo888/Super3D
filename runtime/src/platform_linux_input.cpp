@@ -341,20 +341,23 @@ void load_player_settings() {
     const char* profile = std::getenv("NX_ASPECT_PROFILE");
     int ratio = profile && std::strcmp(profile, "21:9") == 0 ? 1 :
                 profile && std::strcmp(profile, "32:9") == 0 ? 2 :
-                profile && std::strcmp(profile, "16:9") == 0 ? 0 : std::clamp(s.aspect_ratio, 0, 2);
+                profile && std::strcmp(profile, "16:10") == 0 ? 3 :
+                profile && std::strcmp(profile, "16:9") == 0 ? 0 : std::clamp(s.aspect_ratio, 0, 3);
     int disp_w = s.width, disp_h = s.height;
     if (s.fullscreen) {
         if (const SDL_DisplayMode* dm = SDL_GetCurrentDisplayMode(SDL_GetPrimaryDisplay()); dm && dm->w > 0 && dm->h > 0)
             disp_w = dm->w, disp_h = dm->h;
     }
-    const double target_aspect = ratio == 1 ? (64.0 / 27.0) : ratio == 2 ? (32.0 / 9.0) : (16.0 / 9.0);
+    const double target_aspect = ratio == 1 ? (64.0 / 27.0) : ratio == 2 ? (32.0 / 9.0) :
+                                 ratio == 3 ? (16.0 / 10.0) : (16.0 / 9.0);
     const double disp_aspect = disp_h > 0 ? double(disp_w) / double(disp_h) : 0.0;
     char uw_res[32];
     if (ratio && disp_w > 0 && disp_h > 0 && std::fabs(disp_aspect - target_aspect) / target_aspect <= 0.10)
         std::snprintf(uw_res, sizeof uw_res, "%dx%d", disp_w, disp_h);
     else
-        std::snprintf(uw_res, sizeof uw_res, "%s", ratio == 1 ? "2560x1080" : ratio == 2 ? "3840x1080" : "0");
-    setenv("NX_ASPECT_PROFILE", ratio == 1 ? "21:9" : ratio == 2 ? "32:9" : "16:9", 0);
+        std::snprintf(uw_res, sizeof uw_res, "%s",
+                      ratio == 1 ? "2560x1080" : ratio == 2 ? "3840x1080" : ratio == 3 ? "1920x1200" : "0");
+    setenv("NX_ASPECT_PROFILE", ratio == 1 ? "21:9" : ratio == 2 ? "32:9" : ratio == 3 ? "16:10" : "16:9", 0);
     setenv("NX_ULTRAWIDE", ratio ? uw_res : "0", 0);
     const char* flags[] = {"NX_TERRAIN_MOD_ASPECT_TEST", "NX_UW_POWERUP_TEST", "NX_UW_FLOWER_TEST",
         "NX_UW_MAP_ALIGN_TEST", "NX_UW_MAP_COMPOSITE_TEST", "NX_UW_MAP_CARD_TEST",
@@ -409,22 +412,25 @@ void reload_player_settings() {
     for (size_t a = 0; a < overlay::kControlCount; ++a)
         s.keyboard_bindings[a] = keys[a], s.controller_bindings[a] = overlay::default_controller_binding(a, s.controller_preset);
     if (!overlay::load_settings(path, s)) return;
-    const int ratio = std::clamp(s.aspect_ratio, 0, 2);
+    const int ratio = std::clamp(s.aspect_ratio, 0, 3);
     if (s.width > 0) s.height = std::max(360, ratio == 1 ? s.width * 27 / 64 :
-                                              ratio == 2 ? s.width * 9 / 32 : s.width * 9 / 16);
+                                              ratio == 2 ? s.width * 9 / 32 :
+                                              ratio == 3 ? s.width * 10 / 16 : s.width * 9 / 16);
     int disp_w = s.width, disp_h = s.height;
     if (s.fullscreen) {
         if (const SDL_DisplayMode* dm = SDL_GetCurrentDisplayMode(SDL_GetPrimaryDisplay()); dm && dm->w > 0 && dm->h > 0)
             disp_w = dm->w, disp_h = dm->h;
     }
-    const double target_aspect = ratio == 1 ? (64.0 / 27.0) : ratio == 2 ? (32.0 / 9.0) : (16.0 / 9.0);
+    const double target_aspect = ratio == 1 ? (64.0 / 27.0) : ratio == 2 ? (32.0 / 9.0) :
+                                 ratio == 3 ? (16.0 / 10.0) : (16.0 / 9.0);
     const double disp_aspect = disp_h > 0 ? double(disp_w) / double(disp_h) : 0.0;
     char uw_res[32];
     if (ratio && disp_w > 0 && disp_h > 0 && std::fabs(disp_aspect - target_aspect) / target_aspect <= 0.10)
         std::snprintf(uw_res, sizeof uw_res, "%dx%d", disp_w, disp_h);
     else
-        std::snprintf(uw_res, sizeof uw_res, "%s", ratio == 1 ? "2560x1080" : ratio == 2 ? "3840x1080" : "0");
-    setenv("NX_ASPECT_PROFILE", ratio == 1 ? "21:9" : ratio == 2 ? "32:9" : "16:9", 1);
+        std::snprintf(uw_res, sizeof uw_res, "%s",
+                      ratio == 1 ? "2560x1080" : ratio == 2 ? "3840x1080" : ratio == 3 ? "1920x1200" : "0");
+    setenv("NX_ASPECT_PROFILE", ratio == 1 ? "21:9" : ratio == 2 ? "32:9" : ratio == 3 ? "16:10" : "16:9", 1);
     setenv("NX_ULTRAWIDE", ratio ? uw_res : "0", 1);
     const char* flags[] = {"NX_TERRAIN_MOD_ASPECT_TEST", "NX_UW_POWERUP_TEST", "NX_UW_FLOWER_TEST",
         "NX_UW_MAP_ALIGN_TEST", "NX_UW_MAP_COMPOSITE_TEST", "NX_UW_MAP_CARD_TEST",

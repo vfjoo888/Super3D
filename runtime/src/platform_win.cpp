@@ -646,7 +646,7 @@ static bool parse_pc_settings_file(const std::filesystem::path& ini_path, PcMenu
         int value = 0;
         if (std::sscanf(line.c_str(), "width=%d", &value) == 1 && value >= 640 && value <= 7680) state.width = value;
         else if (std::sscanf(line.c_str(), "height=%d", &value) == 1 && value >= 360 && value <= 4320) state.height = value;
-        else if (std::sscanf(line.c_str(), "aspect_ratio=%d", &value) == 1) state.aspect_ratio = std::clamp(value, 0, 2);
+        else if (std::sscanf(line.c_str(), "aspect_ratio=%d", &value) == 1) state.aspect_ratio = std::clamp(value, 0, 3);
         else if (std::sscanf(line.c_str(), "monitor=%d", &value) == 1) state.monitor = std::max(0, value);
         else if (std::sscanf(line.c_str(), "internal_resolution=%d", &value) == 1) state.internal_resolution = std::clamp(value, 0, 9);
         else if (std::sscanf(line.c_str(), "volume=%d", &value) == 1) state.volume = std::clamp(value, 0, 200);
@@ -764,11 +764,13 @@ static bool parse_pc_settings_file(const std::filesystem::path& ini_path, PcMenu
         state.game_language = 0;
     if (state.aspect_ratio >= 0) {
         const int ratio = state.aspect_ratio;
-        const double target_aspect = ratio == 1 ? (64.0 / 27.0) : ratio == 2 ? (32.0 / 9.0) : (16.0 / 9.0);
+        const double target_aspect = ratio == 1 ? (64.0 / 27.0) : ratio == 2 ? (32.0 / 9.0) :
+                                     ratio == 3 ? (16.0 / 10.0) : (16.0 / 9.0);
         const double current_aspect = state.height > 0 ? double(state.width) / double(state.height) : 0.0;
         if (state.width > 0 && std::fabs(current_aspect - target_aspect) / target_aspect > 0.03)
             state.height = std::max(360, ratio == 1 ? state.width * 27 / 64 :
                                           ratio == 2 ? state.width * 9 / 32 :
+                                          ratio == 3 ? state.width * 10 / 16 :
                                                        state.width * 9 / 16);
         const WinMonitorInfo init_mon = target_win_monitor(state.monitor);
         const int disp_w = state.fullscreen ? init_mon.width : state.width;
@@ -778,8 +780,10 @@ static bool parse_pc_settings_file(const std::filesystem::path& ini_path, PcMenu
         if (ratio && disp_w > 0 && disp_h > 0 && std::fabs(disp_aspect - target_aspect) / target_aspect <= 0.10)
             std::snprintf(uw_res, sizeof uw_res, "%dx%d", disp_w, disp_h);
         else
-            std::snprintf(uw_res, sizeof uw_res, "%s", ratio == 1 ? "2560x1080" : ratio == 2 ? "3840x1080" : "0");
-        _putenv_s("NX_ASPECT_PROFILE", ratio == 1 ? "21:9" : ratio == 2 ? "32:9" : "16:9");
+            std::snprintf(uw_res, sizeof uw_res, "%s",
+                          ratio == 1 ? "2560x1080" : ratio == 2 ? "3840x1080" : ratio == 3 ? "1920x1200" : "0");
+        _putenv_s("NX_ASPECT_PROFILE",
+                  ratio == 1 ? "21:9" : ratio == 2 ? "32:9" : ratio == 3 ? "16:10" : "16:9");
         _putenv_s("NX_ULTRAWIDE", ratio ? uw_res : "0");
         _putenv_s("NX_RESOLUTION", ratio ? uw_res : "1920x1080");
         const char* flags[] = {"NX_TERRAIN_MOD_ASPECT_TEST", "NX_UW_POWERUP_TEST", "NX_UW_FLOWER_TEST",

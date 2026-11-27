@@ -46,7 +46,7 @@ bool load_settings(const std::string& path, Settings& s) {
         const char* l = line.c_str();
         if (std::sscanf(l, "width=%d", &v) == 1 && v >= 640 && v <= 7680) s.width = v;
         else if (std::sscanf(l, "height=%d", &v) == 1 && v >= 360 && v <= 4320) s.height = v;
-        else if (std::sscanf(l, "aspect_ratio=%d", &v) == 1) s.aspect_ratio = std::clamp(v, 0, 2);
+        else if (std::sscanf(l, "aspect_ratio=%d", &v) == 1) s.aspect_ratio = std::clamp(v, 0, 3);
         else if (std::sscanf(l, "monitor=%d", &v) == 1) s.monitor = std::max(0, v);
         else if (std::sscanf(l, "internal_resolution=%d", &v) == 1) s.internal_resolution = std::clamp(v, 0, 9);
         else if (std::sscanf(l, "volume=%d", &v) == 1) s.volume = std::clamp(v, 0, 200);
