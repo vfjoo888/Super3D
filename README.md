@@ -8,16 +8,19 @@ A static recompilation of **Super Mario 3D World + Bowser's Fury** (`010028600EB
 
 ## Project Status & Testing
 
-- **Tested Hardware & Performance:** Tested on **NVIDIA RTX 5060 Ti (16 GB VRAM)** in **World 1** at **200–240 FPS**.
-- **Other GPUs:** Other graphics cards (AMD, Intel, and other NVIDIA models) are currently **untested** — performance may vary depending on your PC.
-- **Game Coverage:** Testing so far has only been done in **World 1** of *Super Mario 3D World*; later worlds and ***Bowser's Fury*** have not been tested yet.
+- **Tested Hardware & Performance:** Tested on **NVIDIA RTX 5060 Ti (16 GB VRAM)**:
+  - **Linux:** Tested in **World 1** and the first levels of **World Star** at a stable **240 FPS**.
+  - **Windows:** Tested up to **World 2** at **200–240 FPS**.
+- **Other GPUs:** Other graphics cards (AMD, Intel, and other NVIDIA models) are currently **largely untested** — performance may vary depending on your PC.
+- **Game Coverage:** Later worlds and ***Bowser's Fury*** have not been fully tested yet.
 
 ## Supported Platforms & Roadmap
 
-- **Currently Supported:** **Windows (x64)** only.
-- **Planned for Upcoming Releases:**
-  - **Linux** support
-  - **16:10** aspect ratio support
+- **Currently Supported:** **Windows (x64)** and **Linux (x64)**, with **16:9**, **16:10**, **21:9**, and **32:9** aspect ratios.
+- **Planned for Future Releases:**
+  - **Online Multiplayer** via **Nextendo**
+  - Support for game version **1.2.2**
+  - **Toggleable Wii U movement speed & physics** (experimental)
 
 ## Built On
 
@@ -30,15 +33,17 @@ Super3D is built on the **ToTK recomp** framework and my other Switch static rec
 - **Native Static Recompilation** — Translates the Switch `main` and `sdk` executables into native x86-64 code (`NX_GAME=super3d`).
 - **Vulkan Graphics Backend** — Full NVN-to-Vulkan translation with Maxwell-to-SPIR-V shader translation, GPU ASTC decoding, async pipeline compilation, and internal resolution scaling.
 - **SM3DW Renderer & Runtime Support** — Implements cubemap `2D_ARRAY` views, copied `NVNtexture` / `NVNSAMP1` sampler token tracking, `ClearTexture` & `BufferFlushMappedRange` synchronization, `nvnQueueAcquireTexture` token retention, SDK 10/11 `AudioRenderSystem` offsets, and `nn::swkbd::InlineKeyboard` / controller applet hooks.
-- **Ultrawide Support (21:9 & 32:9)** — Native `Hor+` camera projection and widened render targets with 16:9-safe UI scaling.
-- **In-Game Overlay & Settings** — Dear ImGui settings menu (`Tab` / controller shortcut) for display, aspect ratio, resolution, VSync, frame cap, audio, controller remapping, deadzones, and performance/speedrun overlays.
+- **Ultrawide & 16:10 Support (16:10, 21:9 & 32:9)** — Native camera/projection scaling, widened/adjusted render targets, and automatic HUD/UI layout mods.
+- **High-FPS Support (up to 240 FPS)** — Fixed 60 Hz simulation timestep with interpolated camera and skeletal animations (`60 / 90 / 120 / 144 / 240 FPS`).
+- **Profiles & Emulator Save Import** — Multiple user profiles with automatic save detection (`GameData.bin`) from Eden, Ryujinx, Ryubing, Yuzu, Sudachi, Suyu, and Citron.
+- **In-Game Overlay & Settings** — Dear ImGui settings menu (`F1` / controller shortcut) for display, aspect ratio, resolution, VSync, frame cap, audio, controller remapping, deadzones, and performance/speedrun overlays.
 
 ---
 
 ## Requirements
 
-- **Your own dumped copy** of *Super Mario 3D World + Bowser's Fury* (`ExeFS` + `RomFS`)
-- **OS:** Windows 10/11 (x86-64, AVX2) *(Linux support planned for upcoming releases)*
+- **Your own dumped copy** of *Super Mario 3D World + Bowser's Fury* v1.0.0 (`ExeFS` + `RomFS`)
+- **OS:** Windows 10/11 or Linux (x86-64, AVX2)
 - **GPU:** Vulkan 1.3 capable GPU with up-to-date drivers
 - **Build Toolchain (building from source):**
   - CMake `>= 3.25` & Ninja
