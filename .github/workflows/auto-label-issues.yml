@@ -29,6 +29,7 @@ jobs:
           import json
           import os
           import re
+          import subprocess
           import urllib.error
           import urllib.request
 
@@ -104,15 +105,29 @@ jobs:
               f"Title: {title}\n\nBody:\n{body}"
           )
 
-          ai_resp = api(
-              "https://models.github.ai/inference/chat/completions",
-              method="POST",
-              data={
-                  "model": "openai/gpt-4o-mini",
-                  "temperature": 0,
-                  "messages": [{"role": "user", "content": prompt}],
-              },
+          payload = json.dumps({
+              "model": "openai/gpt-4o-mini",
+              "temperature": 0,
+              "messages": [{"role": "user", "content": prompt}],
+          })
+          curl_out = subprocess.check_output(
+              [
+                  "curl", "-sS", "-L", "-w", "\n%{http_code}",
+                  "-X", "POST", "https://models.github.ai/inference/chat/completions",
+                  "-H", "Content-Type: application/json",
+                  "-H", f"Authorization: Bearer {TOKEN}",
+                  "-d", payload,
+              ],
+              text=True,
+              timeout=30,
           )
+          resp_body, _, http_code = curl_out.rpartition("\n")
+          if http_code.strip() != "200":
+              raise RuntimeError(f"GitHub Models HTTP {http_code}: {resp_body[:500]!r}")
+          try:
+              ai_resp = json.loads(resp_body)
+          except json.JSONDecodeError as je:
+              raise RuntimeError(f"GitHub Models non-JSON ({http_code}): {resp_body[:500]!r}") from je
           raw = ai_resp["choices"][0]["message"]["content"].strip()
           match = re.search(r"\[.*\]", raw, re.S)
           if not match:
