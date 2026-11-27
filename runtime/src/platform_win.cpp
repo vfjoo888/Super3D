@@ -998,6 +998,13 @@ static std::atomic<uint64_t> g_shader_compiled{0}, g_shader_total{0};
 static std::atomic<bool> g_shader_progress_visible{false};
 static void toggle_fullscreen(HWND h);
 
+static void clamp_rect_to_work(const RECT& work, int outer_w, int outer_h, int& x, int& y) {
+    if (x + outer_w > work.right) x = work.right - outer_w;
+    if (y + outer_h > work.bottom) y = work.bottom - outer_h;
+    if (x < work.left) x = work.left;
+    if (y < work.top) y = work.top;
+}
+
 static void resize_window_client(HWND h, int width, int height) {
     if (!h || g_fullscreen) return;
     RECT r{0, 0, width, height};
@@ -1007,8 +1014,11 @@ static void resize_window_client(HWND h, int width, int height) {
     RECT current{};
     GetWindowRect(h, &current);
     const int outer_w = r.right - r.left, outer_h = r.bottom - r.top;
-    const int x = current.left + ((current.right - current.left) - outer_w) / 2;
-    const int y = current.top + ((current.bottom - current.top) - outer_h) / 2;
+    int x = current.left + ((current.right - current.left) - outer_w) / 2;
+    int y = current.top + ((current.bottom - current.top) - outer_h) / 2;
+    MONITORINFO mi{sizeof mi};
+    if (GetMonitorInfoW(MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST), &mi))
+        clamp_rect_to_work(mi.rcWork, outer_w, outer_h, x, y);
     SetWindowPos(h, nullptr, x, y, outer_w, outer_h, SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
@@ -1260,7 +1270,17 @@ static void toggle_fullscreen(HWND h) {
         // (target monitor rect applied above)
     } else {
         SetWindowLongW(h, GWL_STYLE, kWindowed);
-        SetWindowPlacement(h, &g_placement);
+        if (g_placement.length == sizeof g_placement) {
+            if (g_placement.showCmd == SW_SHOWMAXIMIZED) g_placement.showCmd = SW_SHOWNORMAL;
+            const WinMonitorInfo mon = target_win_monitor(g_pc_settings.monitor);
+            const int pw = g_placement.rcNormalPosition.right - g_placement.rcNormalPosition.left;
+            const int ph = g_placement.rcNormalPosition.bottom - g_placement.rcNormalPosition.top;
+            int px = g_placement.rcNormalPosition.left;
+            int py = g_placement.rcNormalPosition.top;
+            clamp_rect_to_work(mon.work, pw, ph, px, py);
+            g_placement.rcNormalPosition = {px, py, px + pw, py + ph};
+            SetWindowPlacement(h, &g_placement);
+        }
         SetWindowPos(h, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
     }
     g_fullscreen = !g_fullscreen;
