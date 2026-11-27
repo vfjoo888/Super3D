@@ -6,7 +6,7 @@ if [ "${1:-}" = "--recomp-prepare" ]; then
     exec "$HERE/usr/bin/game-build/python/bin/python3" -I -B \
         "$HERE/usr/bin/game-build/setup_game.py" setup "$@"
 fi
-if [ -x "$HERE/usr/bin/wonder-launcher" ]; then
-    exec "$HERE/usr/bin/wonder-launcher" "$@"
+if [ -x "$HERE/usr/bin/Super3D-launcher" ]; then
+    exec "$HERE/usr/bin/Super3D-launcher" "$@"
 fi
-exec "$HERE/usr/bin/wonder" "$@"
+exec "$HERE/usr/bin/Super3D" "$@"

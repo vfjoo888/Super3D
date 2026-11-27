@@ -1,13 +1,13 @@
 [Desktop Entry]
 Type=Application
-Name=SuperWonders
-Comment=Super Mario Bros. Wonder, recompiled for PC (bring your own game files)
-Exec=wonder
-Icon=superwonders
+Name=Super3D
+Comment=Super Mario 3D World + Bowser's Fury, recompiled for PC (bring your own game files)
+Exec=Super3D
+Icon=super3d
 Categories=Game;
 Terminal=false
 Actions=Configuration;
 
 [Desktop Action Configuration]
-Name=SuperWonders Launcher
-Exec=wonder --config
+Name=Super3D Launcher
+Exec=Super3D --config

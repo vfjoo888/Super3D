@@ -160,15 +160,6 @@ void apply_settings(const overlay::Settings& s, bool persist) {
             }
             SDL_SetWindowAlwaysOnTop(g_window, s.always_on_top);
         });
-    if (false)
-        post_to_main([s] {
-        s.always_on_top != before.always_on_top)
-        post_to_main([s] {
-            if (!g_window) return;
-            SDL_SetWindowFullscreen(g_window, s.fullscreen);
-            if (!s.fullscreen) SDL_SetWindowSize(g_window, s.width, s.height);
-            SDL_SetWindowAlwaysOnTop(g_window, s.always_on_top);
-        });
     if (persist) overlay::save_settings(settings_path(), s);
 }
 
@@ -362,11 +353,14 @@ void load_player_settings() {
     const char* flags[] = {"NX_TERRAIN_MOD_ASPECT_TEST", "NX_UW_POWERUP_TEST", "NX_UW_FLOWER_TEST",
         "NX_UW_MAP_ALIGN_TEST", "NX_UW_MAP_COMPOSITE_TEST", "NX_UW_MAP_CARD_TEST",
         "NX_UW_MAP_MARKERS_TEST", "NX_UW_MAP_DETAIL_TEST", "NX_UW_SETTINGS_SCISSOR_TEST"};
-    for (const char* flag : flags) setenv(flag, ratio ? "1" : "0", 0);
+    const bool is_wonder = std::strcmp(NX_GAME_NAME, "wonder") == 0;
+    for (const char* flag : flags) setenv(flag, (is_wonder && ratio) ? "1" : "0", 0);
     // The alternate flower offset shifts normal Linux bubbles away from their flower.
     setenv("NX_UW_FLOWER_ALT_TEST", "0", 0);
     if (s.width > 0) s.height = std::max(360, ratio == 1 ? s.width * 27 / 64 :
-                                              ratio == 2 ? s.width * 9 / 32 : s.width * 9 / 16);
+                                              ratio == 2 ? s.width * 9 / 32 :
+                                              ratio == 3 ? s.width * 10 / 16 :
+                                                           s.width * 9 / 16);
     if (const char* e = std::getenv("NX_MEM_LIMIT_GB"); e && std::atof(e) > 0) s.memory_limit_gb = std::atoi(e);
     apply_settings(s, false);
     overlay::Host host;
@@ -391,6 +385,7 @@ void load_player_settings() {
     };
     host.key_name = key_name;
     for (size_t a = 0; a < overlay::kControlCount; ++a) host.default_keyboard_bindings[a] = keys[a];
+    const int hotkeys[overlay::kHotkeyCount] = {SDL_SCANCODE_F1, SDL_SCANCODE_F2, SDL_SCANCODE_F11, SDL_SCANCODE_TAB};
     for (size_t h = 0; h < overlay::kHotkeyCount; ++h) host.default_hotkey_bindings[h] = hotkeys[h];
     // Wayland has no "always on top" for clients; X11 does.
     const char* driver = SDL_GetCurrentVideoDriver();
@@ -647,7 +642,7 @@ void sample_input() {
     g_connected = connected;
 }
 
-void linux_host::set_window_focused(bool focused) {
+void set_window_focused(bool focused) {
     g_window_focused.store(focused, std::memory_order_relaxed);
     std::lock_guard lk(g_settings_lock);
     update_audio_gain(g_settings);

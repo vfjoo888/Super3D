@@ -18,7 +18,7 @@ T=$L/toolchain
 PYDIR=$L/python
 OUTDIR=$PWD/build/dist
 VERSION=$(tr -d '\r' < VERSION)
-NAME=SuperWonders-v$VERSION-Linux-x64
+NAME=Super3D-v$VERSION-Linux-x64
 JOBS=$(nproc)
 PY=${PYTHON:-python3.12}  # (the container's; on a newer host, PYTHON=python3)
 GCCV=$(ls /usr/lib/gcc/x86_64-linux-gnu | sort -n | tail -1)  # (11 in the container; whatever the host has)
@@ -31,10 +31,10 @@ fetch() {  # url sha256 file: downloads pinned by their SHA-256
 }
 
 # ---- the program (no game code: NX_GAME_LIBRARY; SDL3 linked in: 22.04 has none)
-cmake -S . -B "$B" -G Ninja -DCMAKE_BUILD_TYPE=Release -DNX_GAME=wonder -DNX_GAME_LIBRARY=ON -DNX_SDL_BUNDLED=ON \
+cmake -S . -B "$B" -G Ninja -DCMAKE_BUILD_TYPE=Release -DNX_GAME=super3d -DNX_GAME_LIBRARY=ON -DNX_SDL_BUNDLED=ON \
       -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DNX_GEN_DIR="$L/no-gen" >/dev/null
-ninja -C "$B" -j"$JOBS" wonder
-if nm "$B/wonder" | grep -q ' main_[0-9a-f]\{8\}'; then echo "$B/wonder has game code linked in"; exit 1; fi
+ninja -C "$B" -j"$JOBS" super3d
+if nm "$B/Super3D" | grep -q ' main_[0-9a-f]\{8\}'; then echo "$B/Super3D has game code linked in"; exit 1; fi
 
 # ---- the compiler: clang 21 and lld, with the libraries they need that a base system may not have
 rm -rf "$T" && mkdir -p "$T/bin" "$T/lib"
@@ -91,11 +91,11 @@ mkdir -p "$OUTDIR" && mv "$L/release/$NAME.tar.gz" "$OUTDIR/"
 
 # ---- the AppImage: the release folder as usr/bin (appimagetool runs extracted: no FUSE in the container)
 APPDIR=$L/AppDir
-rm -rf "$APPDIR" && mkdir -p "$APPDIR/usr/bin" && cp -a "$L/release/SuperWonders/." "$APPDIR/usr/bin/"
-cp "$L/release/SuperWonders/recomplauncher.json" "$APPDIR/recomplauncher.json"
+rm -rf "$APPDIR" && mkdir -p "$APPDIR/usr/bin" && cp -a "$L/release/Super3D/." "$APPDIR/usr/bin/"
+cp "$L/release/Super3D/recomplauncher.json" "$APPDIR/recomplauncher.json"
 cp tools/linux/AppRun "$APPDIR/" && chmod +x "$APPDIR/AppRun"
 cp tools/linux/superwonders.desktop "$APPDIR/"
-cp assets/wonder_app.svg "$APPDIR/superwonders.svg" && ln -sf superwonders.svg "$APPDIR/.DirIcon"
+cp assets/super3d_app.png "$APPDIR/super3d.png" && ln -sf super3d.png "$APPDIR/.DirIcon"
 "$PY" tools/pack_release.py --check-only "$APPDIR"  # (the AppDir too: nothing of this PC or of the game)
 fetch https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage \
       ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0 appimagetool-x86_64.AppImage

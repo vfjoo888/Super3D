@@ -301,9 +301,11 @@ bool uc_path_safe(const char *path) {
 }
 
 const char *uc_strip_top(const char *zip_path) {
-    static const char top[] = "SuperWonders/";
-    size_t l = sizeof top - 1;
-    return !strncmp(zip_path, top, l) && zip_path[l] ? zip_path + l : NULL;
+    static const char top3d[] = "Super3D/";
+    static const char topw[] = "SuperWonders/";
+    if (!strncmp(zip_path, top3d, sizeof top3d - 1) && zip_path[sizeof top3d - 1]) return zip_path + sizeof top3d - 1;
+    if (!strncmp(zip_path, topw, sizeof topw - 1) && zip_path[sizeof topw - 1]) return zip_path + sizeof topw - 1;
+    return NULL;
 }
 
 bool uc_hex_decode(const char *hex, uint8_t *out, size_t n) {

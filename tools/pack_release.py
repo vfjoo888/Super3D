@@ -233,7 +233,7 @@ def recomplauncher_json(version):
                         "--romfs", "{game}/romfs", "--data-root", "{install}/data"]
         start_program = [exe]
     else:
-        appimage = f"SuperWonders-v{version}-Linux-x64.AppImage"
+        appimage = f"{GAME}-v{version}-Linux-x64.AppImage"
         # RecompLauncher prefers the AppImage when present; an extracted tarball falls back
         # to the included setup runner and native executable.
         prepare_program = [appimage, "game-build/recomp-setup"]

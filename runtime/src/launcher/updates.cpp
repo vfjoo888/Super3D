@@ -514,7 +514,8 @@ bool apply_now() {
     g.step = "Unpacking";
     if (run_wait({tar_program(), "-xf", str(archive), "-C", str(work() / "staging")}) != 0)
         return fail("couldn't unpack " + std::string(rel.zip_name));
-    const fs::path staged = work() / "staging" / "SuperWonders";
+    const fs::path staged = work() / "staging" /
+        (std::strcmp(NX_GAME_NAME, "sm3dw") == 0 || std::strcmp(NX_GAME_NAME, "super3d") == 0 ? "Super3D" : "SuperWonders");
     std::string text;
     UcManifest next{}, prev{};
     char err[256] = "";
