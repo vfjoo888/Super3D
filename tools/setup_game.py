@@ -400,7 +400,14 @@ class Setup:
                     self.done(step, self.ids()[step])
             at += share
             say(at, "Set up" if at >= 1 else "Setting up")
-        if not gamebuild.IS_SM3DW:
+        if gamebuild.IS_SM3DW:
+            try:
+                self.run([self.py, os.path.join(TOOLS, "super3d_uw_layouts.py"),
+                          "--romfs", self.romfs, "--mods", os.path.join(self.data, "mods")],
+                         0.99, 0.01, "Preparing ultrawide layouts")
+            except SystemExit as e:
+                print(f"warning: {e}; ultrawide layouts will be retried when needed", flush=True)
+        else:
             # Generate both profiles once from the installed RomFS and menu mod. Existing
             # installations are also repaired by the lightweight startup check.
             try:

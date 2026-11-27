@@ -1,4 +1,4 @@
-"""Generate 21:9 and 32:9 ultrawide UI & HUD layout mods for Super Mario 3D World + Bowser's Fury."""
+"""Generate 16:10, 21:9 and 32:9 UI & HUD layout mods for Super Mario 3D World + Bowser's Fury."""
 import argparse
 import os
 import struct
@@ -389,6 +389,7 @@ def main():
     ap.add_argument('--romfs', required=True)
     ap.add_argument('--mods', required=True)
     args = ap.parse_args()
+    generate(args.romfs, os.path.join(args.mods, '00-uw-map-hud-16-10'), 16.0 / 10.0)
     generate(args.romfs, os.path.join(args.mods, '00-uw-map-hud-21-9'), 2560.0 / 1080.0)
     generate(args.romfs, os.path.join(args.mods, '00-uw-map-hud-32-9'), 32.0 / 9.0)
 

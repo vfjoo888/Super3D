@@ -122,9 +122,11 @@ const std::vector<fs::path>& mod_roots() {
             const bool screen32 = clean == "00-uw-screen-test";
             const bool map21 = clean == "00-uw-map-hud-21-9";
             const bool screen21 = clean == "00-uw-screen-test-21-9";
-            if (aspect_profile && (map32 || screen32 || map21 || screen21)) {
+            const bool map16_10 = clean == "00-uw-map-hud-16-10";
+            if (aspect_profile && (map32 || screen32 || map21 || screen21 || map16_10)) {
                 const bool selected = ((map32 || screen32) && std::strcmp(aspect_profile, "32:9") == 0) ||
-                                      ((map21 || screen21) && std::strcmp(aspect_profile, "21:9") == 0);
+                                      ((map21 || screen21) && std::strcmp(aspect_profile, "21:9") == 0) ||
+                                      (map16_10 && std::strcmp(aspect_profile, "16:10") == 0);
                 if (selected) mods.push_back(e.path());
             } else if (!disabled) mods.push_back(e.path());
         }

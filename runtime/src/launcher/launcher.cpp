@@ -2120,9 +2120,40 @@ bool wanted(const std::vector<std::string>& args, bool& config_mode) {
 }  // namespace
 
 void prepare_ultrawide_layouts() {
-    if (game::kInfo.program_id != 0x010015100B514000ull) return;
     const char* profile = std::getenv("NX_ASPECT_PROFILE");
-    if (!profile || (std::strcmp(profile, "21:9") != 0 && std::strcmp(profile, "32:9") != 0)) return;
+    if (!profile) return;
+    if (game::kInfo.program_id == 0x010028600EBDA000ull) {
+        const char* mod_name = std::strcmp(profile, "16:10") == 0 ? "00-uw-map-hud-16-10" :
+                               std::strcmp(profile, "21:9") == 0  ? "00-uw-map-hud-21-9" :
+                               std::strcmp(profile, "32:9") == 0  ? "00-uw-map-hud-32-9" : nullptr;
+        if (!mod_name) return;
+        const fs::path data = u8(plat::data_root());
+        const fs::path mods_dir = data / "mods";
+        std::error_code ec;
+        if (fs::is_directory(mods_dir / mod_name / "romfs" / "LayoutData", ec)) return;
+        fs::path romfs = data / "game" / "romfs";
+        if (!fs::is_directory(romfs, ec)) {
+            std::ifstream rf(data / "game" / "romfs_path.txt");
+            std::string line;
+            if (std::getline(rf, line)) {
+                while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+                if (!line.empty()) romfs = u8(line);
+            }
+        }
+        if (!fs::is_directory(romfs / "LayoutData", ec)) return;
+        const Kit kit = find_kit();
+        fs::path root = u8(kit.script).parent_path();
+        fs::path script = root / "tools" / "super3d_uw_layouts.py";
+        if (!file(script)) script = root / "super3d_uw_layouts.py";
+        if (kit.python.empty() || !file(script)) return;
+        Job job;
+        job.start({kit.python, "-u", str(script), "--romfs", str(romfs), "--mods", str(mods_dir)});
+        while (job.running) plat::sleep_ns(50'000'000);
+        if (job.result != 0) log("ultrawide: super3d layout preparation failed (%d)", int(job.result));
+        return;
+    }
+    if (game::kInfo.program_id != 0x010015100B514000ull) return;
+    if (std::strcmp(profile, "21:9") != 0 && std::strcmp(profile, "32:9") != 0) return;
     const Kit kit = find_kit();
     fs::path root = u8(kit.script).parent_path();
     fs::path script = root / "tools" / "wonder_uw_prepare.py";
