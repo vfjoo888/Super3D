@@ -1,0 +1,134 @@
+name: Auto-label issues with AI
+
+on:
+  issues:
+    types: [opened, reopened, edited]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number to label manually"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+  models: read
+
+jobs:
+  auto-label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Analyze issue and apply labels
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import urllib.error
+          import urllib.request
+
+          TOKEN = os.environ["GITHUB_TOKEN"]
+          REPO = os.environ["REPO"]
+          ISSUE_NUMBER = os.environ["ISSUE_NUMBER"]
+
+          LABELS = {
+              "bug": ("d73a4a", "Something isn't working"),
+              "enhancement": ("a2eeef", "New feature or request"),
+              "windows": ("0078D4", "Issues specific to Windows x64"),
+              "linux": ("FCC624", "Issues specific to Linux x64 / AppImage"),
+              "amd": ("ED1C24", "AMD GPU / driver specific issue"),
+              "intel": ("0068B5", "Intel GPU / iGPU specific issue"),
+              "nvidia": ("76B900", "NVIDIA GPU / driver specific issue"),
+              "performance": ("D93F0B", "FPS, 1% lows, stutter, or frame pacing"),
+              "rendering": ("5319E7", "Vulkan, shaders, graphics glitches"),
+              "aspect-ratio": ("1D76DB", "16:10, 21:9, 32:9, or HUD/UI scaling"),
+              "setup": ("0E8A16", "Game files setup, RomFS, or gamebuild"),
+              "launcher": ("BFD4F2", "Launcher UI, profiles, saves, or updater"),
+              "online": ("C5DEF5", "Nextendo multiplayer / networking"),
+              "bowsers-fury": ("B60205", "Issues specific to Bowser's Fury"),
+              "input": ("FBCA04", "Controllers, keyboard, rumble, or bindings"),
+              "audio": ("F9D0C4", "Audio, music, or sound effects"),
+          }
+
+          def api(url, method="GET", data=None, base="https://api.github.com"):
+              req = urllib.request.Request(
+                  url if url.startswith("http") else f"{base}{url}",
+                  data=json.dumps(data).encode("utf-8") if data is not None else None,
+                  method=method,
+                  headers={
+                      "Authorization": f"Bearer {TOKEN}",
+                      "Accept": "application/vnd.github+json",
+                      "Content-Type": "application/json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  },
+              )
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  body = resp.read().decode("utf-8")
+                  return json.loads(body) if body else {}
+
+          issue = api(f"/repos/{REPO}/issues/{ISSUE_NUMBER}")
+          if issue.get("pull_request"):
+              print("Skipping pull request")
+              raise SystemExit(0)
+
+          title = issue.get("title") or ""
+          body = (issue.get("body") or "")[:8000]
+          existing_on_issue = {lbl["name"] for lbl in issue.get("labels", [])}
+
+          prompt = (
+              "You are triaging a GitHub issue for Super3D (a PC static recompilation of "
+              "Super Mario 3D World + Bowser's Fury using Vulkan).\n"
+              "Choose 1 to 5 labels ONLY from this exact list:\n"
+              + "\n".join(f"- {name}: {desc}" for name, (_, desc) in LABELS.items())
+              + "\n\nRespond ONLY with a JSON array of label strings, e.g. [\"bug\", \"amd\", \"rendering\"].\n\n"
+              f"Title: {title}\n\nBody:\n{body}"
+          )
+
+          ai_resp = api(
+              "https://models.github.ai/inference/chat/completions",
+              method="POST",
+              data={
+                  "model": "openai/gpt-4o-mini",
+                  "temperature": 0,
+                  "messages": [{"role": "user", "content": prompt}],
+              },
+          )
+          raw = ai_resp["choices"][0]["message"]["content"].strip()
+          match = re.search(r"\[.*\]", raw, re.S)
+          if not match:
+              raise RuntimeError(f"Unexpected model output: {raw}")
+          chosen = [x for x in json.loads(match.group(0)) if x in LABELS]
+          to_add = [x for x in chosen if x not in existing_on_issue]
+          print(f"AI chose: {chosen} | adding: {to_add}")
+          if not to_add:
+              raise SystemExit(0)
+
+          repo_labels = {
+              lbl["name"]
+              for lbl in api(f"/repos/{REPO}/labels?per_page=100")
+          }
+          for name in to_add:
+              if name not in repo_labels:
+                  color, desc = LABELS[name]
+                  try:
+                      api(
+                          f"/repos/{REPO}/labels",
+                          method="POST",
+                          data={"name": name, "color": color, "description": desc},
+                      )
+                      print(f"Created missing label: {name}")
+                  except urllib.error.HTTPError as e:
+                      print(f"Could not create label {name}: {e}")
+
+          api(
+              f"/repos/{REPO}/issues/{ISSUE_NUMBER}/labels",
+              method="POST",
+              data={"labels": to_add},
+          )
+          print("Applied labels successfully.")
+          PY
