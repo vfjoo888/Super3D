@@ -1007,6 +1007,7 @@ static void clamp_rect_to_work(const RECT& work, int outer_w, int outer_h, int& 
 
 static void resize_window_client(HWND h, int width, int height) {
     if (!h || g_fullscreen) return;
+    if (IsZoomed(h)) ShowWindow(h, SW_RESTORE);
     RECT r{0, 0, width, height};
     const DWORD style = DWORD(GetWindowLongPtrW(h, GWL_STYLE));
     const DWORD ex_style = DWORD(GetWindowLongPtrW(h, GWL_EXSTYLE));
