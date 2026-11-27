@@ -479,6 +479,21 @@ void hook_controller_calc(CPU& c) {
     if (g_run_calc) g_orig_controller_calc(c);
 }
 
+void run_pre_draw_graphics(CPU& c, uint64_t kit) {
+    if (!g_fn_pre_draw_graphics || !kit) return;
+    const uint64_t gfx = ld<uint64_t>(kit + 0x20);
+    const uint64_t light_keeper = gfx ? ld<uint64_t>(gfx + 0xb8) : 0;
+    const uint64_t light_impl = light_keeper ? ld<uint64_t>(light_keeper + 0x8) : 0;
+    const uint32_t saved_light_idx = light_impl ? ld<uint32_t>(light_impl + 0x174c) : 0;
+
+    const uint64_t saved_x0 = c.x[0];
+    c.x[0] = kit;
+    g_fn_pre_draw_graphics(c);
+    c.x[0] = saved_x0;
+
+    if (light_impl) st<uint32_t>(light_impl + 0x174c, saved_light_idx);
+}
+
 void hook_game_system_movement(CPU& c) {
     // Always restore true camera and skeleton state before simulation or graphics replay.
     camera_restore();
@@ -513,6 +528,8 @@ void hook_game_system_movement(CPU& c) {
         if (high_fps_interp_enabled() && kit) {
             camera_capture(kit);
             camera_apply(kit, g_alpha);
+            // Re-run preDrawGraphics so GPU camera/view UBOs match g_alpha instead of staying at alpha=1.0.
+            if (g_alpha < 0.999f) run_pre_draw_graphics(c, kit);
         }
         return;
     }
@@ -523,19 +540,7 @@ void hook_game_system_movement(CPU& c) {
     // frees stay balanced) while preserving PrePassLightKeeper->impl+0x174c. Skip updateGraphics
     // so light/shadow/graphics request lists from the last 60 Hz tick are not cleared or rotated.
     camera_apply(kit, g_alpha);
-    if (!g_fn_pre_draw_graphics) return;
-
-    const uint64_t gfx = ld<uint64_t>(kit + 0x20);
-    const uint64_t light_keeper = gfx ? ld<uint64_t>(gfx + 0xb8) : 0;
-    const uint64_t light_impl = light_keeper ? ld<uint64_t>(light_keeper + 0x8) : 0;
-    const uint32_t saved_light_idx = light_impl ? ld<uint32_t>(light_impl + 0x174c) : 0;
-
-    const uint64_t saved_x0 = c.x[0];
-    c.x[0] = kit;
-    g_fn_pre_draw_graphics(c);
-    c.x[0] = saved_x0;
-
-    if (light_impl) st<uint32_t>(light_impl + 0x174c, saved_light_idx);
+    run_pre_draw_graphics(c, kit);
 }
 
 bool install_hook(const LoadedModule* lm, uint64_t off, Fn hook, Fn& orig) {
