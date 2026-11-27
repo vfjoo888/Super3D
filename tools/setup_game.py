@@ -279,7 +279,10 @@ class Setup:
 
     def step_romfs(self, at, share):
         dest = os.path.join(self.data, "extract", "romfs")
+        path_file = os.path.join(self.data, "extract", "romfs_path.txt")
         os.makedirs(os.path.dirname(dest), exist_ok=True)
+        if os.path.isfile(path_file):
+            os.remove(path_file)
         if os.path.islink(dest) or (WIN and os.path.isdir(dest) and is_junction(dest)):
             remove_link(dest)
         elif os.path.isdir(dest) and self.state().get("romfs") and self.state().get("romfs") != self.ids()["romfs"]:
@@ -288,10 +291,11 @@ class Setup:
         if self.mode == "link":
             if os.path.isdir(dest):
                 shutil.rmtree(dest)
-            if make_link(self.romfs, dest):
-                say(at + share, "Linked the game's files")
-                return
-            print("note: directory links are not supported on this filesystem; copying RomFS instead", flush=True)
+            if not make_link(self.romfs, dest):
+                with open(path_file, "w", encoding="utf-8", newline="\n") as f:
+                    f.write(os.path.abspath(self.romfs) + "\n")
+            say(at + share, "Linked the game's files")
+            return
         copied, last = 0, 0.0
         for base, dirs, files in os.walk(self.romfs):
             rel = os.path.relpath(base, self.romfs)

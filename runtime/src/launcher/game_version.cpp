@@ -364,11 +364,20 @@ OutputInfo inspect_output_dir(const fs::path& dir, const std::string& gamelib_fi
         return out;
     }
 
+    fs::path romfs_dir = dir / "extract" / "romfs";
+    {
+        std::ifstream rf(dir / "extract" / "romfs_path.txt");
+        std::string line;
+        if (std::getline(rf, line)) {
+            while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+            if (!line.empty()) romfs_dir = path_u8(line);
+        }
+    }
     const fs::path local_lib = dir / "game" / path_u8(gamelib_filename);
     out.has_gamelib = is_file(local_lib) || (!fallback_gamelib_path.empty() && is_file(path_u8(fallback_gamelib_path)));
     out.has_analysis = is_file(dir / "analysis" / "main.bin") && is_file(dir / "analysis" / "sdk.bin");
     out.has_shaders = is_file(dir / "shader_programs.bin") && is_file(dir / "spirv" / "results.tsv");
-    out.has_romfs = is_dir(dir / "extract" / "romfs" / "Shader") || is_dir(dir / "extract" / "romfs" / "ShaderData");
+    out.has_romfs = is_dir(romfs_dir / "Shader") || is_dir(romfs_dir / "ShaderData");
 
     out.installed_version = read_key(dir / "game" / "build-id.txt", "version");
     if (!is_sm3dw() && out.installed_version.empty() && is_file(dir / "analysis" / "main.bin")) {
@@ -380,7 +389,7 @@ OutputInfo inspect_output_dir(const fs::path& dir, const std::string& gamelib_fi
         }
     }
     if (out.installed_version.empty() && out.has_romfs) {
-        const RomfsInfo r = inspect_romfs(dir / "extract" / "romfs");
+        const RomfsInfo r = inspect_romfs(romfs_dir);
         if (r.valid) out.installed_version = r.version_label;
     }
 

@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <string_view>
 static inline std::filesystem::path nx_u8path(std::string_view s) { return std::filesystem::path(std::u8string_view(reinterpret_cast<const char8_t*>(s.data()), s.size())); }
 #include <map>
@@ -187,6 +188,17 @@ void mount(const std::string& name, const fs::path& p) {
 
 // ---- mounts ---------------------------------------------------------------------------------------------------
 
+static fs::path romfs_root() {
+    const fs::path base = data_root();
+    std::ifstream f(base / "extract" / "romfs_path.txt");
+    std::string line;
+    if (std::getline(f, line)) {
+        while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
+        if (!line.empty()) return nx_u8path(line);
+    }
+    return base / "extract" / "romfs";
+}
+
 void QueryMountRomCacheSize(CPU& c) {
     st<uint64_t>(c.x[0], 0x1000);
     c.x[0] = kOk;
@@ -194,7 +206,7 @@ void QueryMountRomCacheSize(CPU& c) {
 
 void MountRom(CPU& c) {
     std::lock_guard lk(g_fs);
-    mount(cstr(c.x[0]), data_root() / "extract" / "romfs");
+    mount(cstr(c.x[0]), romfs_root());
     g_rom_mounts.insert(cstr(c.x[0]));
     c.x[0] = kOk;
 }
@@ -601,7 +613,7 @@ void add_virtual_file(const std::string& path, std::string data) {
 }
 
 std::string read_game_file(const std::string& relative_to_romfs) {
-    FILE* f = plat::fopen_utf8(utf8(data_root() / "extract" / "romfs" / nx_u8path(relative_to_romfs)), "rb");
+    FILE* f = plat::fopen_utf8(utf8(romfs_root() / nx_u8path(relative_to_romfs)), "rb");
     if (!f) return {};
     std::string s;
     char buf[65536];
