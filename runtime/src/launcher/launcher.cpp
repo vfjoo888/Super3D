@@ -1430,11 +1430,12 @@ void profile_dialog(bool open) {
             picked_import_folder.clear();
         }
     }
-    import_to = std::clamp(import_to, 0, int(db.users.size()) - 1);
     if (open_import_modal) {
         open_import_modal = false;
+        import_to = edited;
         ImGui::OpenPopup("##import_save_modal");
     }
+    import_to = std::clamp(import_to, 0, int(db.users.size()) - 1);
     ImGui::SetNextWindowPos({io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f}, ImGuiCond_Appearing, {0.5f, 0.5f});
     ImGui::SetNextWindowSize({std::min(io.DisplaySize.x * 0.80f, 540 * k), 0}, ImGuiCond_Always);
     if (ImGui::BeginPopupModal("##import_save_modal", nullptr,
