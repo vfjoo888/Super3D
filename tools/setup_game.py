@@ -288,9 +288,10 @@ class Setup:
         if self.mode == "link":
             if os.path.isdir(dest):
                 shutil.rmtree(dest)
-            make_link(self.romfs, dest)
-            say(at + share, "Linked the game's files")
-            return
+            if make_link(self.romfs, dest):
+                say(at + share, "Linked the game's files")
+                return
+            print("note: directory links are not supported on this filesystem; copying RomFS instead", flush=True)
         copied, last = 0, 0.0
         for base, dirs, files in os.walk(self.romfs):
             rel = os.path.relpath(base, self.romfs)
@@ -418,9 +419,15 @@ def make_link(src, dest):
     if WIN:  # a directory junction: no administrator rights or developer mode needed, unlike a symbolic link
         r = subprocess.run(["cmd", "/c", "mklink", "/J", dest, src], capture_output=True, text=True)
         if r.returncode:
-            raise SystemExit(f"error: couldn't link {dest} to {src}: {r.stdout}{r.stderr}")
-    else:
+            print(f"note: couldn't link {dest} to {src}: {(r.stdout + r.stderr).strip()}", flush=True)
+            return False
+        return True
+    try:
         os.symlink(src, dest)
+        return True
+    except OSError as e:
+        print(f"note: couldn't link {dest} to {src}: {e}", flush=True)
+        return False
 
 
 def remove_link(p):
