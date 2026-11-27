@@ -318,6 +318,10 @@ def recompile(kit, exefs, gen, done_before, share):
         if p.wait():
             sys.stderr.write("".join(log[-40:]))
             raise SystemExit(f"error: recompiling {name} failed (exit {p.returncode})")
+        if IS_SM3DW and name == "main":
+            uw_patcher = os.path.join(HERE, "patch_super3d_uw.py")
+            if os.path.isfile(uw_patcher):
+                subprocess.run([sys.executable, uw_patcher, os.path.join(gen, name)], check=True)
         progress(start + part, f"Recompiled {name}")
 
 

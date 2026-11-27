@@ -37,7 +37,7 @@ namespace {
 //   al::GameFrameworkNx::procFrame_        : 0x964e80 (virtual, vtable +0xe8)
 //   sead::ControllerMgr::calc              : 0x72fff0 (virtual, vtable +0xb0)
 //   GameSystem::movement                   : 0x412f00 (virtual, vtable +0x20)
-//   al::ModelDrawerDeferred::draw          : 0x871c60 (virtual)
+//   al::ModelDrawer::isDraw                : 0x870510 (called by every ModelDrawer*::draw)
 //   al::LiveActorKit::clearGraphicsRequest : 0x82c080
 //   al::LiveActorKit::updateGraphics       : 0x82c090
 //   al::LiveActorKit::preDrawGraphics      : 0x82c0e0
@@ -46,7 +46,7 @@ namespace {
 constexpr uint64_t kOffProcFrame = 0x964e80;
 constexpr uint64_t kOffControllerMgrCalc = 0x72fff0;
 constexpr uint64_t kOffGameSystemMovement = 0x412f00;
-constexpr uint64_t kOffModelDrawerDraw = 0x871c60;
+constexpr uint64_t kOffModelDrawerIsDraw = 0x870510;
 constexpr uint64_t kOffLiveActorKitClearGraphics = 0x82c080;
 constexpr uint64_t kOffLiveActorKitUpdateGraphics = 0x82c090;
 constexpr uint64_t kOffLiveActorKitPreDrawGraphics = 0x82c0e0;
@@ -61,7 +61,7 @@ uint64_t g_main_base = 0;
 Fn g_orig_proc_frame = nullptr;
 Fn g_orig_controller_calc = nullptr;
 Fn g_orig_game_system_movement = nullptr;
-Fn g_orig_model_drawer_draw = nullptr;
+Fn g_orig_model_drawer_is_draw = nullptr;
 Fn g_fn_clear_graphics = nullptr;
 Fn g_fn_update_graphics = nullptr;
 Fn g_fn_pre_draw_graphics = nullptr;
@@ -249,33 +249,119 @@ void models_reset() {
     g_skel_history.clear();
 }
 
-void hook_model_drawer_draw(CPU& c) {
-    if (!g_orig_model_drawer_draw) return;
+void interpolate_model_keeper(CPU& c, uint64_t keeper) {
+    if (!keeper) return;
+    const uint64_t ctrl = ld<uint64_t>(keeper + 0x18);
+    if (!ctrl) return;
+    const uint64_t model_obj = ld<uint64_t>(ctrl + 0x08);
+    const uint64_t buf_idx_ptr = ld<uint64_t>(ctrl + 0x38);
+    if (!model_obj || !buf_idx_ptr) return;
+    const uint64_t skel = ld<uint64_t>(model_obj + 0x38);
+    if (!skel) return;
+    const uint64_t res_skel = ld<uint64_t>(skel);
+    const uint64_t world_addr = ld<uint64_t>(skel + 0x20);
+    if (!res_skel || !world_addr) return;
+    const uint32_t bones = ld<uint16_t>(res_skel + 0x38);
+    if (bones == 0 || bones > 512) return;
+
+    const size_t floats = size_t(bones) * 16;
+    const float* world = reinterpret_cast<const float*>(world_addr);
+    SkelHistory& h = g_skel_history[skel];
+
+    if (h.tick != g_logic_tick) {
+        const bool continuous = (h.tick != 0 && h.tick + 1 == g_logic_tick && h.bones == bones);
+        if (h.bones != bones) {
+            h.prev.resize(floats);
+            h.curr.resize(floats);
+            h.saved.resize(floats);
+            h.bones = bones;
+        }
+        if (continuous) {
+            h.prev.swap(h.curr);
+        }
+        std::memcpy(h.curr.data(), world, floats * sizeof(float));
+        if (!continuous) {
+            std::memcpy(h.prev.data(), world, floats * sizeof(float));
+            h.has_prev = false;
+        } else {
+            // Root bone translation is column 3 (indices 12, 13, 14).
+            const float dx = h.curr[12] - h.prev[12];
+            const float dy = h.curr[13] - h.prev[13];
+            const float dz = h.curr[14] - h.prev[14];
+            h.has_prev = (dx * dx + dy * dy + dz * dz) <= kTeleportDistSq;
+            bool changed = false;
+            if (h.has_prev) {
+                const float* p = h.prev.data();
+                const float* q = h.curr.data();
+                for (size_t k = 0; k < floats; ++k) {
+                    if (std::fabs(q[k] - p[k]) > 1e-5f) { changed = true; break; }
+                }
+            }
+            h.moving = changed;
+        }
+        if (!continuous) h.moving = false;
+        h.tick = g_logic_tick;
+    }
+
+    if (h.moving && g_alpha < 0.999f && h.blended_frame != g_render_frame) {
+        float* dst = reinterpret_cast<float*>(world_addr);
+        if (!h.applied) {
+            std::memcpy(h.saved.data(), dst, floats * sizeof(float));
+            h.world_addr = world_addr;
+            h.applied = true;
+            g_blended_skels.push_back(&h);
+        }
+        const float a = g_alpha;
+        const float* p = h.prev.data();
+        const float* q = h.curr.data();
+        for (size_t k = 0; k < floats; ++k) dst[k] = p[k] + (q[k] - p[k]) * a;
+
+        const uint32_t buf_idx = ld<uint32_t>(buf_idx_ptr);
+        c.x[0] = model_obj;
+        c.x[1] = buf_idx;
+        g_fn_model_calc_skeleton(c);
+        c.x[0] = model_obj;
+        c.x[1] = buf_idx;
+        g_fn_model_calc_shape(c);
+        h.blended_frame = g_render_frame;
+    }
+}
+
+void hook_model_drawer_is_draw(CPU& c) {
+    if (!g_orig_model_drawer_is_draw) return;
+    const uint64_t drawer = c.x[0];
+    g_orig_model_drawer_is_draw(c);
+    if ((uint32_t(c.x[0]) & 1u) == 0) return;
+
     const int cap = nvn::frame_cap();
     static const bool env_on = [] {
         const char* e = std::getenv("NX_SM3DW_HIGH_FPS");
         return !(e && e[0] == '0');
     }();
-    if (!env_on || cap <= 60 || !g_fn_model_calc_skeleton || !g_fn_model_calc_shape) {
-        g_orig_model_drawer_draw(c);
+    if (!env_on || !plat::high_fps_interp() || cap <= 60 || !g_fn_model_calc_skeleton || !g_fn_model_calc_shape) {
         return;
     }
 
-    // al::ModelDrawerDeferred::draw (0x871c60):
+    // al::ModelDrawer layout:
+    //   drawer + 0x24 -> int32_t m_cnt, + 0x28 -> ModelKeeper** items
     //   drawer + 0x30 -> ModelGroupArray { int32_t count; pad; ModelGroup** items; }
     //   ModelGroup + 0x48 -> int32_t modelCount, + 0x50 -> ModelKeeper** items
-    //   ModelKeeper + 0x18 -> ModelCtrl*
-    //   ModelCtrl + 0x08 -> nn::g3d::ModelObj*, + 0x38 -> int32_t* pBufIdx
-    //   ModelObj + 0x38 -> nn::g3d::SkeletonObj*
-    //   SkeletonObj + 0x00 -> ResSkeleton* (+0x38: uint16_t boneCount), + 0x20 -> float* worldMtxArray (16 floats/bone)
     const uint64_t t_interp0 = plat::monotonic_ns();
-    const uint64_t drawer = c.x[0];
+    const uint64_t saved_x0 = c.x[0], saved_x1 = c.x[1];
+
+    const int32_t direct_cnt = drawer ? ld<int32_t>(drawer + 0x24) : 0;
+    const uint64_t direct_items = drawer ? ld<uint64_t>(drawer + 0x28) : 0;
+    if (direct_cnt > 0 && direct_cnt <= 4096 && direct_items) {
+        for (int32_t m = 0; m < direct_cnt; ++m) {
+            interpolate_model_keeper(c, ld<uint64_t>(direct_items + uint64_t(m) * 8));
+        }
+    }
+
     const uint64_t grp_arr = drawer ? ld<uint64_t>(drawer + 0x30) : 0;
     const int32_t grp_cnt = grp_arr ? ld<int32_t>(grp_arr) : 0;
     const uint64_t grp_items = grp_arr ? ld<uint64_t>(grp_arr + 8) : 0;
 
     if (grp_cnt > 0 && grp_cnt <= 256 && grp_items) {
-        const uint64_t saved_x0 = c.x[0], saved_x1 = c.x[1];
         for (int32_t g = 0; g < grp_cnt; ++g) {
             const uint64_t grp = ld<uint64_t>(grp_items + uint64_t(g) * 8);
             if (!grp) continue;
@@ -284,90 +370,13 @@ void hook_model_drawer_draw(CPU& c) {
             if (m_cnt <= 0 || m_cnt > 4096 || !m_items) continue;
 
             for (int32_t m = 0; m < m_cnt; ++m) {
-                const uint64_t keeper = ld<uint64_t>(m_items + uint64_t(m) * 8);
-                if (!keeper) continue;
-                const uint64_t ctrl = ld<uint64_t>(keeper + 0x18);
-                if (!ctrl) continue;
-                const uint64_t model_obj = ld<uint64_t>(ctrl + 0x08);
-                const uint64_t buf_idx_ptr = ld<uint64_t>(ctrl + 0x38);
-                if (!model_obj || !buf_idx_ptr) continue;
-                const uint64_t skel = ld<uint64_t>(model_obj + 0x38);
-                if (!skel) continue;
-                const uint64_t res_skel = ld<uint64_t>(skel);
-                const uint64_t world_addr = ld<uint64_t>(skel + 0x20);
-                if (!res_skel || !world_addr) continue;
-                const uint32_t bones = ld<uint16_t>(res_skel + 0x38);
-                if (bones == 0 || bones > 512) continue;
-
-                const size_t floats = size_t(bones) * 16;
-                const float* world = reinterpret_cast<const float*>(world_addr);
-                SkelHistory& h = g_skel_history[skel];
-
-                if (h.tick != g_logic_tick) {
-                    const bool continuous = (h.tick != 0 && h.tick + 1 == g_logic_tick && h.bones == bones);
-                    if (h.bones != bones) {
-                        h.prev.resize(floats);
-                        h.curr.resize(floats);
-                        h.saved.resize(floats);
-                        h.bones = bones;
-                    }
-                    if (continuous) {
-                        h.prev.swap(h.curr);
-                    }
-                    std::memcpy(h.curr.data(), world, floats * sizeof(float));
-                    if (!continuous) {
-                        std::memcpy(h.prev.data(), world, floats * sizeof(float));
-                        h.has_prev = false;
-                    } else {
-                        // Root bone translation is column 3 (indices 12, 13, 14).
-                        const float dx = h.curr[12] - h.prev[12];
-                        const float dy = h.curr[13] - h.prev[13];
-                        const float dz = h.curr[14] - h.prev[14];
-                        h.has_prev = (dx * dx + dy * dy + dz * dz) <= kTeleportDistSq;
-                        bool changed = false;
-                        if (h.has_prev) {
-                            const float* p = h.prev.data();
-                            const float* q = h.curr.data();
-                            for (size_t k = 0; k < floats; ++k) {
-                                if (std::fabs(q[k] - p[k]) > 1e-5f) { changed = true; break; }
-                            }
-                        }
-                        h.moving = changed;
-                    }
-                    if (!continuous) h.moving = false;
-                    h.tick = g_logic_tick;
-                }
-
-                if (h.moving && g_alpha < 0.999f && h.blended_frame != g_render_frame) {
-                    float* dst = reinterpret_cast<float*>(world_addr);
-                    if (!h.applied) {
-                        std::memcpy(h.saved.data(), dst, floats * sizeof(float));
-                        h.world_addr = world_addr;
-                        h.applied = true;
-                        g_blended_skels.push_back(&h);
-                    }
-                    const float a = g_alpha;
-                    const float* p = h.prev.data();
-                    const float* q = h.curr.data();
-                    for (size_t k = 0; k < floats; ++k) dst[k] = p[k] + (q[k] - p[k]) * a;
-
-                    const uint32_t buf_idx = ld<uint32_t>(buf_idx_ptr);
-                    c.x[0] = model_obj;
-                    c.x[1] = buf_idx;
-                    g_fn_model_calc_skeleton(c);
-                    c.x[0] = model_obj;
-                    c.x[1] = buf_idx;
-                    g_fn_model_calc_shape(c);
-                    h.blended_frame = g_render_frame;
-                }
+                interpolate_model_keeper(c, ld<uint64_t>(m_items + uint64_t(m) * 8));
             }
         }
-        c.x[0] = saved_x0;
-        c.x[1] = saved_x1;
     }
+    c.x[0] = saved_x0;
+    c.x[1] = saved_x1;
     g_prof_interp_ns += plat::monotonic_ns() - t_interp0;
-
-    g_orig_model_drawer_draw(c);
 }
 
 // ---- Core 60 Hz Fixed-Timestep Loop Hooks -------------------------------------------------------
@@ -540,7 +549,7 @@ void install_high_fps_hooks() {
     const bool ok1 = install_hook(lm, kOffProcFrame, &hook_proc_frame, g_orig_proc_frame);
     const bool ok2 = install_hook(lm, kOffControllerMgrCalc, &hook_controller_calc, g_orig_controller_calc);
     const bool ok3 = install_hook(lm, kOffGameSystemMovement, &hook_game_system_movement, g_orig_game_system_movement);
-    const bool ok4 = install_hook(lm, kOffModelDrawerDraw, &hook_model_drawer_draw, g_orig_model_drawer_draw);
+    const bool ok4 = install_hook(lm, kOffModelDrawerIsDraw, &hook_model_drawer_is_draw, g_orig_model_drawer_is_draw);
     g_hooks_installed = ok1 && ok2 && ok3 && ok4;
     log("sm3dw: high-fps hooks %s (procFrame=%d ctrl=%d move=%d model=%d)",
         g_hooks_installed ? "installed" : "FAILED", ok1 ? 1 : 0, ok2 ? 1 : 0, ok3 ? 1 : 0, ok4 ? 1 : 0);
