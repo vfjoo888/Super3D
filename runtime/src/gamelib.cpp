@@ -122,6 +122,11 @@ std::vector<std::string> places() {
     return places;
 }
 
+namespace nx {
+float uw_aspect_scale();
+uint32_t uw_aspect_bits();
+}  // namespace nx
+
 const GameLib* load() {
 
     std::string tried;
@@ -133,7 +138,9 @@ const GameLib* load() {
         std::string why;
         NxGameLibBind bind = open_library(path, why);
         if (!bind) fatal("The game code library %s can't be used: %s.", path.c_str(), why.c_str());
-        static const GameLibHost host = {gamelib_layout(), &call, &unimpl, &svc, &mrs, &msr, &trace_sp};
+        static const GameLibHost host = {gamelib_layout(), &call, &unimpl,           &svc,
+                                         &mrs,           &msr,  &trace_sp,         &uw_aspect_scale,
+                                         &uw_aspect_bits};
         const GameLib* lib = bind(&host);
         if (!lib || lib->layout != gamelib_layout())
             fatal("The game code in %s was built for another version of this program (layout %llx, this one %llx). "

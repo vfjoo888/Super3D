@@ -24,6 +24,8 @@ void svc(CPU& c, uint32_t imm, uint64_t pc) { g_host.svc(c, imm, pc); }
 uint64_t mrs(CPU& c, uint32_t sysreg) { return g_host.mrs(c, sysreg); }
 void msr(CPU& c, uint32_t sysreg, uint64_t value) { g_host.msr(c, sysreg, value); }
 void trace_sp(CPU& c, uint64_t pc) { g_host.trace_sp(c, pc); }
+float uw_aspect_scale() { return g_host.uw_aspect_scale(); }
+uint32_t uw_aspect_bits() { return g_host.uw_aspect_bits(); }
 
 }  // namespace nx
 
