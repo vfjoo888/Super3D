@@ -1287,12 +1287,12 @@ void video(MenuContext& c, const Labels& l) {
     rows::section(kCommon[lang][2]);
     const char* vsync_names[] = {"On", "Fast", "Adaptive", "Off"};
     if (rows::choice(kCommon[lang][7], &s.vsync, vsync_names, 4, kDefaults.vsync, translated_desc(desc::vsync, lang))) settings_changed(true);
-    const char* caps[] = {"30 fps", "60 fps", "90 fps", "120 fps", "144 fps", "180 fps", "240 fps"};
-    constexpr int cap_values[] = {30, 60, 90, 120, 144, 180, 240};
+    const char* caps[] = {"30 fps", "60 fps", "90 fps", "120 fps", "144 fps", "240 fps"};
+    constexpr int cap_values[] = {30, 60, 90, 120, 144, 240};
     int cap = 1;
-    for (int i = 0; i < 7; ++i)
+    for (int i = 0; i < 6; ++i)
         if (cap_values[i] == s.frame_cap) cap = i;
-    if (rows::choice(l.frame_cap_label, &cap, caps, 7, 1, translated_desc(desc::frame_cap, lang)))
+    if (rows::choice(l.frame_cap_label, &cap, caps, 6, 1, translated_desc(desc::frame_cap, lang)))
         s.frame_cap = cap_values[cap], settings_changed(true);
     rows::section(kExtraUiText[lang].reset_sec);
     {

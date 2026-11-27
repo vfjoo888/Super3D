@@ -27,11 +27,10 @@ bool g_started = false;
 
 bool enabled() {
     static const bool on = [] {
+        // Off unless NX_REPLAY_THREAD=1: high-FPS skeleton/camera interpolation mutates guest UBOs
+        // (e.g. draw_buf_idx=0 MtxBlock) every frame, which races with an asynchronous replay thread.
         const char* e = std::getenv("NX_REPLAY_THREAD");
-        if (e && *e) return e[0] != '0';
-        // Off by default for Wonder (dynamic-resolution target aliasing, DEBUG.md #40);
-        // on by default for SM3DW so NVN replay + Vulkan present overlap with the CPU game thread.
-        return nx::game::kInfo.program_id != 0x010015100B514000ull;
+        return e && e[0] == '1';
     }();
     return on;
 }
