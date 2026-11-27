@@ -218,6 +218,7 @@ struct SkelHistory {
     uint32_t tick = 0;
     uint32_t bones = 0;
     bool has_prev = false;
+    bool moving = false;
     std::vector<float> prev;
     std::vector<float> curr;
     std::vector<float> saved;
@@ -252,7 +253,8 @@ void hook_model_drawer_draw(CPU& c) {
         uint64_t world_addr;
         SkelHistory* entry;
     };
-    std::vector<BlendedSkel> blended;
+    static std::vector<BlendedSkel> blended;
+    blended.clear();
 
     const uint64_t drawer = c.x[0];
     const uint64_t grp_arr = drawer ? ld<uint64_t>(drawer + 0x30) : 0;
@@ -309,11 +311,21 @@ void hook_model_drawer_draw(CPU& c) {
                         const float dy = h.curr[13] - h.prev[13];
                         const float dz = h.curr[14] - h.prev[14];
                         h.has_prev = (dx * dx + dy * dy + dz * dz) <= kTeleportDistSq;
+                        bool changed = false;
+                        if (h.has_prev) {
+                            const float* p = h.prev.data();
+                            const float* q = h.curr.data();
+                            for (size_t k = 0; k < floats; ++k) {
+                                if (std::fabs(q[k] - p[k]) > 1e-5f) { changed = true; break; }
+                            }
+                        }
+                        h.moving = changed;
                     }
+                    if (!continuous) h.moving = false;
                     h.tick = g_logic_tick;
                 }
 
-                if (h.has_prev && g_alpha < 0.999f) {
+                if (h.moving && g_alpha < 0.999f) {
                     float* dst = reinterpret_cast<float*>(world_addr);
                     std::memcpy(h.saved.data(), dst, floats * sizeof(float));
                     const float a = g_alpha;
@@ -380,7 +392,7 @@ void hook_proc_frame(CPU& c) {
         g_accum_ns += dt;
         if (g_accum_ns >= kTickNs) {
             g_accum_ns -= kTickNs;
-            if (g_accum_ns >= kTickNs) g_accum_ns %= kTickNs;
+            if (g_accum_ns >= 2 * kTickNs) g_accum_ns = kTickNs;
             g_run_calc = true;
             ++g_logic_tick;
         } else {
@@ -393,11 +405,20 @@ void hook_proc_frame(CPU& c) {
 
     ++g_report_frames;
     if (g_run_calc) ++g_report_ticks;
+    static uint64_t speed_ns = 0;
+    static uint32_t speed_ticks = 0;
+    if (!speed_ns) speed_ns = now;
+    if (g_run_calc) ++speed_ticks;
+    if (now - speed_ns >= 1'000'000'000ull) {
+        const double sec = double(now - speed_ns) / 1e9;
+        plat::overlay_game_speed(double(speed_ticks) / sec / 60.0 * 100.0);
+        speed_ns = now;
+        speed_ticks = 0;
+    }
     if (now - g_report_ns >= 5'000'000'000ull) {
         const double sec = double(now - g_report_ns) / 1e9;
         const double render_fps = double(g_report_frames) / sec;
         const double logic_hz = double(g_report_ticks) / sec;
-        plat::overlay_game_speed(logic_hz / 60.0 * 100.0);
         log("sm3dw: high-fps render=%.1f fps, logic=%.1f Hz (cap=%d)", render_fps, logic_hz, nvn::frame_cap());
         g_report_ns = now;
         g_report_frames = 0;
