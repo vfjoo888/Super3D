@@ -6,10 +6,18 @@ A static recompilation of **Super Mario 3D World + Bowser's Fury** (`010028600EB
 
 ---
 
-## Project Status & Goal
+## Project Status & Testing
 
-- **Current Status:** Boots in-game at **60 FPS**, with some remaining stutters and graphical bugs. Testing so far has only been done on the first few levels of *Super Mario 3D World*; ***Bowser's Fury* has not been tested or touched yet**.
-- **Goal:** A **fully playable PC experience**. A pre-built release will be published as soon as the game is stably playable (doesn't need to be 100% complete first).
+- **Tested Hardware & Performance:** Tested on **NVIDIA RTX 5060 Ti (16 GB VRAM)** in **World 1** at **200–240 FPS**.
+- **Other GPUs:** Other graphics cards (AMD, Intel, and other NVIDIA models) are currently **untested** — performance may vary depending on your PC.
+- **Game Coverage:** Testing so far has only been done in **World 1** of *Super Mario 3D World*; later worlds and ***Bowser's Fury*** have not been tested yet.
+
+## Supported Platforms & Roadmap
+
+- **Currently Supported:** **Windows (x64)** only.
+- **Planned for Upcoming Releases:**
+  - **Linux** support
+  - **16:10** aspect ratio support
 
 ## Built On
 
@@ -19,7 +27,7 @@ Super3D is built on the **ToTK recomp** framework and my other Switch static rec
 
 ## Features
 
-- **Native Static Recompilation** — Translates the Switch `main` and `sdk` executables into native x86-64 code (`NX_GAME=sm3dw`).
+- **Native Static Recompilation** — Translates the Switch `main` and `sdk` executables into native x86-64 code (`NX_GAME=super3d`).
 - **Vulkan Graphics Backend** — Full NVN-to-Vulkan translation with Maxwell-to-SPIR-V shader translation, GPU ASTC decoding, async pipeline compilation, and internal resolution scaling.
 - **SM3DW Renderer & Runtime Support** — Implements cubemap `2D_ARRAY` views, copied `NVNtexture` / `NVNSAMP1` sampler token tracking, `ClearTexture` & `BufferFlushMappedRange` synchronization, `nvnQueueAcquireTexture` token retention, SDK 10/11 `AudioRenderSystem` offsets, and `nn::swkbd::InlineKeyboard` / controller applet hooks.
 - **Ultrawide Support (21:9 & 32:9)** — Native `Hor+` camera projection and widened render targets with 16:9-safe UI scaling.
@@ -30,7 +38,7 @@ Super3D is built on the **ToTK recomp** framework and my other Switch static rec
 ## Requirements
 
 - **Your own dumped copy** of *Super Mario 3D World + Bowser's Fury* (`ExeFS` + `RomFS`)
-- **OS:** Windows 10/11 (x86-64, AVX2) or Linux (x86-64-v3)
+- **OS:** Windows 10/11 (x86-64, AVX2) *(Linux support planned for upcoming releases)*
 - **GPU:** Vulkan 1.3 capable GPU with up-to-date drivers
 - **Build Toolchain (building from source):**
   - CMake `>= 3.25` & Ninja
@@ -42,11 +50,11 @@ Super3D is built on the **ToTK recomp** framework and my other Switch static rec
 
 ## Building from Source
 
-Configure and build with `NX_GAME=sm3dw`:
+Configure and build with `NX_GAME=super3d`:
 
 ```bash
-cmake -B build-sm3dw -G Ninja -DNX_GAME=sm3dw -DCMAKE_BUILD_TYPE=Release
-cmake --build build-sm3dw -j
+cmake -B build-super3d -G Ninja -DNX_GAME=super3d -DCMAKE_BUILD_TYPE=Release
+cmake --build build-super3d -j
 ```
 
 Then prepare your game data (ExeFS + RomFS) using `tools/setup_game.py` or the built-in launcher UI.
@@ -57,7 +65,7 @@ Then prepare your game data (ExeFS + RomFS) using `tools/setup_game.py` or the b
 
 | Path | Description |
 | :--- | :--- |
-| [`games/sm3dw/`](games/sm3dw/) | Game-specific entry point & hooks (`sm3dw`) |
+| [`games/super3d/`](games/super3d/) | Game-specific entry point & hooks (`super3d`) |
 | [`runtime/`](runtime/) | HLE kernel, OS/SDK services, audio, input, overlay, and Vulkan NVN backend |
 | [`recomp/`](recomp/) | Static AArch64-to-C++ recompiler & `nso2bin` |
 | [`tools/`](tools/) | Game setup (`setup_game.py`), Maxwell shader extraction/translation, and packaging scripts |
