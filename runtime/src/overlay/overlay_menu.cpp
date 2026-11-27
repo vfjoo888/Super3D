@@ -1403,7 +1403,7 @@ void audio(MenuContext& c, const Labels& l) {
     rows::indent(-1);
     rows::section(l.game_language);
 #if defined(NX_GAME_NAME)
-    if (std::strcmp(NX_GAME_NAME, "sm3dw") == 0) {
+    if (std::strcmp(NX_GAME_NAME, "sm3dw") == 0 || std::strcmp(NX_GAME_NAME, "super3d") == 0) {
         static constexpr int kSm3dwLangIds[15] = {0, 1, 2, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
         static constexpr const char* kSm3dwLangNames[15] = {
             "English", "Italiano", "Deutsch", "Français", "Español", "한국어", "日本語",
@@ -1749,7 +1749,7 @@ void system_tab(MenuContext& c, const Labels& l) {
         "在 Discord 上显示《超级马力欧兄弟 惊奇》的游玩状态。",
         "在 Discord 上顯示《超級瑪利歐兄弟 驚奇》的遊玩狀態。",
     };
-    const char* discord_desc = (std::strcmp(NX_GAME_NAME, "sm3dw") == 0)
+    const char* discord_desc = (std::strcmp(NX_GAME_NAME, "sm3dw") == 0 || std::strcmp(NX_GAME_NAME, "super3d") == 0)
         ? (lang == 1 ? "Mostra su Discord a cosa stai giocando in Super Mario 3D World + Bowser's Fury."
                      : "Show Super Mario 3D World + Bowser's Fury activity on Discord.")
         : kDiscordDesc[lang];

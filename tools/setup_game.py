@@ -158,7 +158,7 @@ class Setup:
         if not os.path.isdir(romfs):
             info["error"] = f"error: {romfs} not found: pick the RomFS folder of your own copy of the game"
             return info
-        if gamebuild.GAME == "sm3dw":
+        if gamebuild.IS_SM3DW:
             if not glob.glob(os.path.join(glob.escape(romfs), "ShaderData", "*.szs")) or not os.path.isdir(os.path.join(romfs, "SystemData")):
                 info["error"] = f"error: {romfs} doesn't look like Super Mario 3D World + Bowser's Fury's RomFS (expected ShaderData/*.szs and SystemData/)"
                 return info
@@ -318,7 +318,7 @@ class Setup:
                   "--extract", os.path.join(work, "exefs")], at, share * 0.3, "Finding the game's shaders")
         harness = harness_command()
         if not harness:
-            app = "Super3D" if gamebuild.GAME == "sm3dw" else "SuperWonders"
+            app = "Super3D" if gamebuild.IS_SM3DW else "SuperWonders"
             raise SystemExit(f"error: no shader translator (game-build/translator) in this build of {app}")
         spirv = os.path.join(self.data, "spirv")
         say(at + share * 0.3, "Translating the shaders")
@@ -395,7 +395,7 @@ class Setup:
                     self.done(step, self.ids()[step])
             at += share
             say(at, "Set up" if at >= 1 else "Setting up")
-        if gamebuild.GAME != "sm3dw":
+        if not gamebuild.IS_SM3DW:
             # Generate both profiles once from the installed RomFS and menu mod. Existing
             # installations are also repaired by the lightweight startup check.
             try:

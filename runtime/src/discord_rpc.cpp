@@ -216,7 +216,7 @@ bool send_activity_locked() {
     std::string activity;
     if (g_enabled) {
 #if defined(NX_GAME_NAME)
-        const bool is_sm3dw = std::strcmp(NX_GAME_NAME, "sm3dw") == 0;
+        const bool is_sm3dw = std::strcmp(NX_GAME_NAME, "sm3dw") == 0 || std::strcmp(NX_GAME_NAME, "super3d") == 0;
 #else
         const bool is_sm3dw = false;
 #endif

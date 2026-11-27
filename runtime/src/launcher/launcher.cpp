@@ -179,7 +179,7 @@ struct Status {
     std::string why;
 };
 
-inline bool is_sm3dw() { return std::strcmp(NX_GAME_NAME, "sm3dw") == 0; }
+inline bool is_sm3dw() { return std::strcmp(NX_GAME_NAME, "sm3dw") == 0 || std::strcmp(NX_GAME_NAME, "super3d") == 0; }
 
 Status check_status(const Kit& kit) {
     const fs::path d = u8(plat::data_root());
@@ -910,7 +910,7 @@ void page_files() {
     const std::string exefs = g->config.exefs.empty() ? lt(LtChoose) : fit_path(g->config.exefs, lt(LtExeFS));
     std::string exefs_desc =
         is_sm3dw()
-            ? "The ExeFS folder of your own copy of the game. It holds main and sdk."
+            ? "The ExeFS folder of your own copy of the game (version 1.0.0). It holds main and sdk."
             : "The ExeFS folder of your own copy of the game (versions 1.0.0 and 1.2.1 supported). It holds main and sdk.";
     if (!g->config.exefs.empty()) {
         exefs_desc += "\n\nVersion: " + g->exefs_info.summary;

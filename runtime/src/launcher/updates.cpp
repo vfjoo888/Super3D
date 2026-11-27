@@ -660,7 +660,7 @@ void page_updates(float k) {
         st = g.st, msg = g.message, managed = g.managed, rel = g.rel;
     }
     rows::begin("##updates", ImGui::GetContentRegionAvail().y);
-    const bool is_sm3dw = std::strcmp(NX_GAME_NAME, "sm3dw") == 0;
+    const bool is_sm3dw = std::strcmp(NX_GAME_NAME, "sm3dw") == 0 || std::strcmp(NX_GAME_NAME, "super3d") == 0;
     rows::section(is_sm3dw ? "Super3D Update" : "SuperWonders Update");
     rows::action("This version", current_version().c_str(),
                  is_sm3dw ? "The version of Super3D you have." : "The version of SuperWonders you have.", true);

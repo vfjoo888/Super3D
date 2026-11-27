@@ -31,7 +31,8 @@ import subprocess
 import sys
 import time
 
-GAME = os.environ.get("NX_GAME", "sm3dw")
+GAME = os.environ.get("NX_GAME", "super3d")
+IS_SM3DW = GAME in ("sm3dw", "super3d")
 HERE = os.path.dirname(os.path.abspath(__file__))
 WIN = os.name == "nt"
 LIB = f"{GAME}_game.dll" if WIN else f"lib{GAME}_game.so"
@@ -170,13 +171,13 @@ def inspect_exefs(exefs):
 
     pid = read_npdm_program_id(exefs)
     info["program_id"] = pid
-    expected_pid = SM3DW_PROGRAM_ID if GAME == "sm3dw" else WONDER_PROGRAM_ID
-    expected_name = "Super Mario 3D World + Bowser's Fury" if GAME == "sm3dw" else "Super Mario Bros. Wonder"
+    expected_pid = SM3DW_PROGRAM_ID if IS_SM3DW else WONDER_PROGRAM_ID
+    expected_name = "Super Mario 3D World + Bowser's Fury" if IS_SM3DW else "Super Mario Bros. Wonder"
     if pid is not None and pid != expected_pid:
         info["error"] = f"error: ExeFS belongs to title ID {pid:016X}, expected {expected_name} ({expected_pid:016X})"
         return info
 
-    if GAME == "sm3dw":
+    if IS_SM3DW:
         info["version"] = "SM3DW"
         info["expected_romfs_product"] = 1
         info["compatible"] = True
@@ -215,7 +216,7 @@ def default_data_root():
     r = os.environ.get("NX_DATA_ROOT")
     if r:
         return r
-    if WIN and os.path.isfile(os.path.join(os.path.dirname(HERE), f"{'Super3D' if GAME == 'sm3dw' else GAME}.exe")):
+    if WIN and os.path.isfile(os.path.join(os.path.dirname(HERE), f"{'Super3D' if IS_SM3DW else GAME}.exe")):
         return os.path.join(os.path.dirname(HERE), "data")  # a release: <folder>/wonder.exe, <folder>/data
     raise SystemExit("error: no data root: pass --data-root (or set NX_DATA_ROOT)")
 
@@ -237,7 +238,7 @@ def why_build(kit, exefs, game_dir):
         return f"no {LIB} yet"
     ids = read_ids(game_dir)
     if ids.get("kit") != kit.id():
-        return f"this version of {'Super3D' if GAME == 'sm3dw' else 'SuperWonders'} builds the game code differently"
+        return f"this version of {'Super3D' if IS_SM3DW else 'SuperWonders'} builds the game code differently"
     if ids.get("input") != input_id(exefs):
         return "the game files changed"
     return None

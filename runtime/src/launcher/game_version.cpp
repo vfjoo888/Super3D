@@ -22,7 +22,7 @@ constexpr uintmax_t kMain121FlatSize = 0x3728df8ull;
 
 bool is_sm3dw() {
 #ifdef NX_GAME_NAME
-    return std::strcmp(NX_GAME_NAME, "sm3dw") == 0;
+    return std::strcmp(NX_GAME_NAME, "sm3dw") == 0 || std::strcmp(NX_GAME_NAME, "super3d") == 0;
 #else
     return false;
 #endif

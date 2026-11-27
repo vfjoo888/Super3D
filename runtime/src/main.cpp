@@ -147,8 +147,9 @@ NX_HLE("__process_return", process_return);
 void boot() {
     if (const char* t = std::getenv("NX_TRACE")) g_trace = *t == '1';
     if (plat::setting("trace") == "1") g_trace = true;
-    discord::init(std::strcmp(NX_GAME_NAME, "sm3dw") == 0 ? "1575321702089367775"
-                                                           : "1573462667874537472");  // override via NX_DISCORD_APP_ID
+    const bool is_sm3dw = std::strcmp(NX_GAME_NAME, "sm3dw") == 0 || std::strcmp(NX_GAME_NAME, "super3d") == 0;
+    discord::init(is_sm3dw ? "1575321702089367775"
+                           : "1573462667874537472");  // override via NX_DISCORD_APP_ID
     nextendo::init(plat::data_root());
     memory_init();
 #if NX_HAS_LAUNCHER

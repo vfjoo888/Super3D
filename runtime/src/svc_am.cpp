@@ -86,7 +86,7 @@ uint64_t game_language_code() {
     };
     int language = g_game_language.load(std::memory_order_relaxed);
 #if defined(NX_GAME_NAME)
-    if (std::strcmp(NX_GAME_NAME, "sm3dw") == 0 && (language == 4 || language >= 16)) language = 0;
+    if ((std::strcmp(NX_GAME_NAME, "sm3dw") == 0 || std::strcmp(NX_GAME_NAME, "super3d") == 0) && (language == 4 || language >= 16)) language = 0;
 #endif
     const char* selected = codes[language >= 0 && language < int(std::size(codes)) ? language : 0];
     uint64_t code = 0;
