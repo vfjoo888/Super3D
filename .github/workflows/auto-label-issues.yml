@@ -22,6 +22,7 @@ jobs:
       - name: Analyze issue and apply labels
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           REPO: ${{ github.repository }}
           ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
         run: |
@@ -112,6 +113,28 @@ jobs:
           })
 
           def call_ai():
+              gemini_key = os.environ.get("GEMINI_API_KEY", "").strip()
+              if gemini_key:
+                  g_payload = json.dumps({
+                      "contents": [{"parts": [{"text": prompt}]}],
+                      "generationConfig": {"temperature": 0},
+                  })
+                  g_out = subprocess.check_output(
+                      [
+                          "curl", "-sS", "-w", "\n%{http_code}",
+                          "-X", "POST",
+                          f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}",
+                          "-H", "Content-Type: application/json",
+                          "-d", g_payload,
+                      ],
+                      text=True,
+                      timeout=30,
+                  )
+                  g_body, _, g_code = g_out.rpartition("\n")
+                  if g_code.strip() == "200":
+                      return json.loads(g_body)["candidates"][0]["content"]["parts"][0]["text"].strip()
+                  print(f"Gemini API returned ({g_code}): {g_body[:200]!r}; trying GitHub Models...")
+
               curl_out = subprocess.check_output(
                   [
                       "curl", "-sS", "-w", "\n%{http_code}",
@@ -147,26 +170,26 @@ jobs:
               text = f"{title_text}\n{body_text}".lower()
               picks = []
               rules = [
-                  ("windows", ("windows", "win10", "win11", ".exe", "exfat", "ntfs", "amdvlk64.dll")),
-                  ("linux", ("linux", "appimage", "steam deck", "steamos", "ubuntu", "arch", "fedora", "wayland", "x11")),
-                  ("amd", ("amd", "radeon", "rx ", "amdvlk", "radv", "0x1002")),
-                  ("intel", ("intel", "arc ", "uhd ", "iris ", "0x8086")),
-                  ("nvidia", ("nvidia", "rtx", "gtx", "geforce", "0x10de")),
-                  ("performance", ("fps", "stutter", "1% low", "frame", "lag", "slow", "hz")),
-                  ("rendering", ("vulkan", "shader", "pipeline", "glitch", "flicker", "render", "texture", "hdr", "fsr", "fxaa")),
-                  ("aspect-ratio", ("16:10", "21:9", "32:9", "ultrawide", "aspect", "stretch", "hud", "ui cut")),
-                  ("setup", ("setup", "romfs", "exefs", "gamebuild", "dump", "external drive", "exfat", "fat32", "build id")),
-                  ("launcher", ("launcher", "profile", "save", "gamedata.bin", "update", "updater")),
-                  ("online", ("online", "nextendo", "multiplayer", "npln", "network")),
-                  ("bowsers-fury", ("bowser's fury", "bowsers fury", "fury")),
-                  ("input", ("controller", "gamepad", "xbox", "playstation", "dualsense", "pro controller", "keyboard", "rumble")),
-                  ("audio", ("audio", "sound", "music", "crackling", "crackl", "mute", "volume")),
+                  ("windows", (r"\bwindows\b", r"\bwin10\b", r"\bwin11\b", r"\.exe\b", r"\bexfat\b", r"\bamdvlk64\.dll\b")),
+                  ("linux", (r"\blinux\b", r"\bappimage\b", r"\bsteam deck\b", r"\bsteamos\b", r"\bubuntu\b", r"\barch linux\b", r"\bfedora\b", r"\bwayland\b")),
+                  ("amd", (r"\bamd\b", r"\bradeon\b", r"\brx\s*\d{3,4}\b", r"\bamdvlk\b", r"\bradv\b", r"\b0x1002\b")),
+                  ("intel", (r"\bintel\b", r"\barc\s*a\d{3}\b", r"\buhd\s*\d{3}\b", r"\biris\b", r"\b0x8086\b")),
+                  ("nvidia", (r"\bnvidia\b", r"\brtx\s*\d{3,4}\b", r"\bgtx\s*\d{3,4}\b", r"\bgeforce\b", r"\b0x10de\b")),
+                  ("performance", (r"\bfps\b", r"\bstutter\b", r"1%\s*low", r"\bframe pacing\b", r"\bframetime\b", r"\b240hz\b", r"\b144hz\b", r"\b120hz\b")),
+                  ("rendering", (r"\bvulkan\b", r"\bshader\b", r"\bpipeline\b", r"\bglitch\b", r"\bflicker\b", r"\bhdr\b", r"\bfsr\b", r"\bfxaa\b")),
+                  ("aspect-ratio", (r"\b16:10\b", r"\b21:9\b", r"\b32:9\b", r"\bultrawide\b", r"\baspect ratio\b", r"\bstretch")),
+                  ("setup", (r"\bsetup\b", r"\bromfs\b", r"\bexefs\b", r"\bgamebuild\b", r"\bexternal drive\b", r"\bexfat\b", r"\bfat32\b", r"\bbuild id\b")),
+                  ("launcher", (r"\blauncher\b", r"\bprofiles?\b", r"\bgamedata\.bin\b", r"\bself-update\b", r"\bupdater\b")),
+                  ("online", (r"\bonline\b", r"\bnextendo\b", r"\bmultiplayer\b", r"\bnpln\b")),
+                  ("bowsers-fury", (r"\bbowser'?s fury\b", r"\bbowsers fury\b")),
+                  ("input", (r"\bcontroller\b", r"\bgamepad\b", r"\bxbox\b", r"\bplaystation\b", r"\bdualsense\b", r"\bpro controller\b", r"\brumble\b")),
+                  ("audio", (r"\baudio\b", r"\bsound\b", r"\bcrackling\b")),
               ]
-              for label, kws in rules:
-                  if any(k in text for k in kws):
+              for label, patterns in rules:
+                  if any(re.search(pat, text) for pat in patterns):
                       picks.append(label)
-              is_enh = any(k in text for k in ("support for", "feature", "request", "add ", "implement", "suggestion", "enhancement"))
-              is_bug = any(k in text for k in ("crash", "error", "fail", "bug", "broken", "freeze", "hang", "not working", "can't", "cannot"))
+              is_enh = any(re.search(pat, text) for pat in (r"\bsupport for\b", r"\bfeature request\b", r"\benhancement\b", r"\bsuggestion\b"))
+              is_bug = any(re.search(pat, text) for pat in (r"\bcrash", r"\berror\b", r"\bfail", r"\bbug\b", r"\bbroken\b", r"\bfreeze\b", r"\bnot working\b"))
               if is_bug and not is_enh:
                   picks.insert(0, "bug")
               elif is_enh:
