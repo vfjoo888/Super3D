@@ -1,4 +1,5 @@
 #include "profile_image.h"
+#include "default_profile_icon.h"
 #include <algorithm>
 #include <cmath>
 #include <fstream>
@@ -60,20 +61,17 @@ std::vector<uint8_t> import_icon(const std::filesystem::path& path) {
     stbi_image_free(src);
     return jpeg(rgb);
 }
-std::vector<uint8_t> decode_icon_rgba(const std::filesystem::path& path, int out_size) {
-    if (out_size <= 0) return {};
-    std::ifstream f(path, std::ios::binary | std::ios::ate);
-    if (!f) return {};
-    auto len = f.tellg();
-    if (len <= 0 || len > 16 * 1024 * 1024) return {};
-    std::vector<uint8_t> bytes(size_t(len), 0);
-    f.seekg(0);
-    if (!f.read(reinterpret_cast<char*>(bytes.data()), len)) return {};
+std::vector<uint8_t> default_game_icon() {
+    return std::vector<uint8_t>(kDefaultGameIconJpg, kDefaultGameIconJpg + sizeof(kDefaultGameIconJpg));
+}
+namespace {
+std::vector<uint8_t> decode_memory_rgba(const uint8_t* data, size_t size, int out_size) {
+    if (!data || !size || out_size <= 0) return {};
     int w = 0, h = 0, n = 0;
-    if (!stbi_info_from_memory(bytes.data(), int(bytes.size()), &w, &h, &n) || w < 1 || h < 1 || w > 8192 ||
+    if (!stbi_info_from_memory(data, int(size), &w, &h, &n) || w < 1 || h < 1 || w > 8192 ||
         h > 8192 || int64_t(w) * h > 32000000)
         return {};
-    unsigned char* src = stbi_load_from_memory(bytes.data(), int(bytes.size()), &w, &h, &n, 4);
+    unsigned char* src = stbi_load_from_memory(data, int(size), &w, &h, &n, 4);
     if (!src) return {};
     const int side = std::min(w, h), ox = (w - side) / 2, oy = (h - side) / 2;
     std::vector<uint8_t> rgba(size_t(out_size) * size_t(out_size) * 4);
@@ -91,5 +89,20 @@ std::vector<uint8_t> decode_icon_rgba(const std::filesystem::path& path, int out
     }
     stbi_image_free(src);
     return rgba;
+}
+}
+std::vector<uint8_t> decode_icon_rgba(const std::filesystem::path& path, int out_size) {
+    if (out_size <= 0) return {};
+    std::ifstream f(path, std::ios::binary | std::ios::ate);
+    if (!f) return {};
+    auto len = f.tellg();
+    if (len <= 0 || len > 16 * 1024 * 1024) return {};
+    std::vector<uint8_t> bytes(size_t(len), 0);
+    f.seekg(0);
+    if (!f.read(reinterpret_cast<char*>(bytes.data()), len)) return {};
+    return decode_memory_rgba(bytes.data(), bytes.size(), out_size);
+}
+std::vector<uint8_t> decode_default_game_icon_rgba(int out_size) {
+    return decode_memory_rgba(kDefaultGameIconJpg, sizeof(kDefaultGameIconJpg), out_size);
 }
 }

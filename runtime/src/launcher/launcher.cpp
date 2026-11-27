@@ -1054,12 +1054,14 @@ void profile_dialog(bool open) {
             bi = std::atoi(icon_str.c_str() + 8);
             if (bi < 0 || bi >= 6) bi = -1;
         }
-        if (bi < 0 && !icon_str.empty()) {
-            auto it = icon_cache.find(icon_str);
+        if (bi < 0) {
+            const std::string cache_key = icon_str.empty() ? "__default_game_icon__" : icon_str;
+            auto it = icon_cache.find(cache_key);
             if (it == icon_cache.end()) {
-                const auto rgba = profiles::decode_icon_rgba(u8(icon_str), 128);
+                const auto rgba = icon_str.empty() ? profiles::decode_default_game_icon_rgba(128)
+                                                   : profiles::decode_icon_rgba(u8(icon_str), 128);
                 const uint64_t id = !rgba.empty() ? overlay::vk_upload_rgba_texture(rgba.data(), 128, 128) : 0;
-                it = icon_cache.emplace(icon_str, id).first;
+                it = icon_cache.emplace(cache_key, id).first;
             }
             if (it->second) {
                 dl->AddImageRounded((ImTextureID)(uintptr_t)it->second,

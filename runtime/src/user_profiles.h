@@ -8,7 +8,7 @@
 namespace nx::profiles {
 struct User {
     uint64_t lo = 1, hi = 0x4E58485553455231ull;
-    std::string name = "Zagreus";
+    std::string name = "Super3D";
     std::string icon;
 };
 struct Database {

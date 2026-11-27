@@ -82,7 +82,7 @@ std::shared_ptr<Service> profile() {
     s->cmds[1] = [base](IpcCtx& c) { base(c); return 0u; };            // GetBase
     auto image = [] {
         std::vector<uint8_t> bytes;
-        if (user().icon.empty()) return bytes;
+        if (user().icon.empty()) return profiles::default_game_icon();
         if (user().icon.rfind("builtin:", 0) == 0 && user().icon.size() == 9)
             return profiles::builtin_icon(user().icon[8] - '0');
         std::ifstream f(nx_u8path(user().icon), std::ios::binary | std::ios::ate);
