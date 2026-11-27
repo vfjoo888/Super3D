@@ -216,17 +216,36 @@ void camera_apply(uint64_t kit, float alpha) {
 
 struct SkelHistory {
     uint32_t tick = 0;
+    uint32_t blended_frame = 0;
     uint32_t bones = 0;
     bool has_prev = false;
     bool moving = false;
+    bool applied = false;
+    uint64_t world_addr = 0;
     std::vector<float> prev;
     std::vector<float> curr;
     std::vector<float> saved;
 };
 
 std::unordered_map<uint64_t, SkelHistory> g_skel_history;
+std::vector<SkelHistory*> g_blended_skels;
+uint32_t g_render_frame = 1;
+uint64_t g_prof_move_ns = 0;
+uint64_t g_prof_draw_ns = 0;
+uint64_t g_prof_interp_ns = 0;
+
+void models_restore() {
+    for (SkelHistory* h : g_blended_skels) {
+        if (h->applied && h->world_addr) {
+            std::memcpy(reinterpret_cast<void*>(h->world_addr), h->saved.data(), h->saved.size() * sizeof(float));
+            h->applied = false;
+        }
+    }
+    g_blended_skels.clear();
+}
 
 void models_reset() {
+    models_restore();
     g_skel_history.clear();
 }
 
@@ -249,13 +268,7 @@ void hook_model_drawer_draw(CPU& c) {
     //   ModelCtrl + 0x08 -> nn::g3d::ModelObj*, + 0x38 -> int32_t* pBufIdx
     //   ModelObj + 0x38 -> nn::g3d::SkeletonObj*
     //   SkeletonObj + 0x00 -> ResSkeleton* (+0x38: uint16_t boneCount), + 0x20 -> float* worldMtxArray (16 floats/bone)
-    struct BlendedSkel {
-        uint64_t world_addr;
-        SkelHistory* entry;
-    };
-    static std::vector<BlendedSkel> blended;
-    blended.clear();
-
+    const uint64_t t_interp0 = plat::monotonic_ns();
     const uint64_t drawer = c.x[0];
     const uint64_t grp_arr = drawer ? ld<uint64_t>(drawer + 0x30) : 0;
     const int32_t grp_cnt = grp_arr ? ld<int32_t>(grp_arr) : 0;
@@ -325,9 +338,14 @@ void hook_model_drawer_draw(CPU& c) {
                     h.tick = g_logic_tick;
                 }
 
-                if (h.moving && g_alpha < 0.999f) {
+                if (h.moving && g_alpha < 0.999f && h.blended_frame != g_render_frame) {
                     float* dst = reinterpret_cast<float*>(world_addr);
-                    std::memcpy(h.saved.data(), dst, floats * sizeof(float));
+                    if (!h.applied) {
+                        std::memcpy(h.saved.data(), dst, floats * sizeof(float));
+                        h.world_addr = world_addr;
+                        h.applied = true;
+                        g_blended_skels.push_back(&h);
+                    }
                     const float a = g_alpha;
                     const float* p = h.prev.data();
                     const float* q = h.curr.data();
@@ -340,20 +358,16 @@ void hook_model_drawer_draw(CPU& c) {
                     c.x[0] = model_obj;
                     c.x[1] = buf_idx;
                     g_fn_model_calc_shape(c);
-                    blended.push_back({world_addr, &h});
+                    h.blended_frame = g_render_frame;
                 }
             }
         }
         c.x[0] = saved_x0;
         c.x[1] = saved_x1;
     }
+    g_prof_interp_ns += plat::monotonic_ns() - t_interp0;
 
     g_orig_model_drawer_draw(c);
-
-    for (const BlendedSkel& b : blended) {
-        std::memcpy(reinterpret_cast<void*>(b.world_addr), b.entry->saved.data(),
-                    b.entry->saved.size() * sizeof(float));
-    }
 }
 
 // ---- Core 60 Hz Fixed-Timestep Loop Hooks -------------------------------------------------------
@@ -375,7 +389,10 @@ void hook_proc_frame(CPU& c) {
         g_alpha = 1.0f;
         g_prev_ns = now;
         g_accum_ns = 0;
-        g_orig_proc_frame(c);
+        ++g_render_frame;
+    const uint64_t t_proc0 = plat::monotonic_ns();
+    g_orig_proc_frame(c);
+    g_prof_draw_ns += plat::monotonic_ns() - t_proc0;
         return;
     }
 
@@ -401,7 +418,10 @@ void hook_proc_frame(CPU& c) {
         g_alpha = float(double(g_accum_ns) / double(kTickNs));
     }
 
+    ++g_render_frame;
+    const uint64_t t_proc0 = plat::monotonic_ns();
     g_orig_proc_frame(c);
+    g_prof_draw_ns += plat::monotonic_ns() - t_proc0;
 
     ++g_report_frames;
     if (g_run_calc) ++g_report_ticks;
@@ -419,7 +439,14 @@ void hook_proc_frame(CPU& c) {
         const double sec = double(now - g_report_ns) / 1e9;
         const double render_fps = double(g_report_frames) / sec;
         const double logic_hz = double(g_report_ticks) / sec;
-        log("sm3dw: high-fps render=%.1f fps, logic=%.1f Hz (cap=%d)", render_fps, logic_hz, nvn::frame_cap());
+        log("sm3dw: high-fps render=%.1f fps, logic=%.1f Hz (cap=%d, proc=%.2fms, move=%.2fms, interp=%.2fms)",
+            render_fps, logic_hz, nvn::frame_cap(),
+            g_report_frames ? double(g_prof_draw_ns) / 1e6 / double(g_report_frames) : 0.0,
+            g_report_ticks ? double(g_prof_move_ns) / 1e6 / double(g_report_ticks) : 0.0,
+            g_report_frames ? double(g_prof_interp_ns) / 1e6 / double(g_report_frames) : 0.0);
+        g_prof_draw_ns = 0;
+        g_prof_move_ns = 0;
+        g_prof_interp_ns = 0;
         g_report_ns = now;
         g_report_frames = 0;
         g_report_ticks = 0;
@@ -431,8 +458,9 @@ void hook_controller_calc(CPU& c) {
 }
 
 void hook_game_system_movement(CPU& c) {
-    // Always restore true camera state before simulation or graphics replay.
+    // Always restore true camera and skeleton state before simulation or graphics replay.
     camera_restore();
+    models_restore();
 
     const uint64_t game_sys = c.x[0];
     const uint64_t seq = game_sys ? ld<uint64_t>(game_sys + 0x10) : 0;
@@ -456,7 +484,9 @@ void hook_game_system_movement(CPU& c) {
     }
 
     if (g_run_calc) {
+        const uint64_t t_m0 = plat::monotonic_ns();
         g_orig_game_system_movement(c);
+        g_prof_move_ns += plat::monotonic_ns() - t_m0;
         if (kit) g_last_ticked_kit = kit;
         if (high_fps_interp_enabled() && kit) {
             camera_capture(kit);

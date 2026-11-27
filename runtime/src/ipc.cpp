@@ -2,6 +2,7 @@
 #include "ipc.h"
 
 #include <mutex>
+#include <set>
 #include <cstdlib>
 #include <unordered_map>
 
@@ -44,7 +45,14 @@ std::shared_ptr<Service> make_service(const std::string& name) {
 uint32_t Service::handle(IpcCtx& ctx) {
     auto it = cmds.find(ctx.cmd);
     if (it != cmds.end()) return it->second(ctx);
-    log("ipc: %s cmd %u not implemented (stub ok)", name.c_str(), ctx.cmd);
+    static std::mutex mu;
+    static std::set<std::pair<std::string, uint32_t>> logged;
+    bool first = false;
+    {
+        std::lock_guard lk(mu);
+        first = logged.emplace(name, ctx.cmd).second;
+    }
+    if (first) log("ipc: %s cmd %u not implemented (stub ok)", name.c_str(), ctx.cmd);
     return 0;
 }
 

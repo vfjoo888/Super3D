@@ -32,6 +32,8 @@ namespace nx {
 uint64_t vsync_wait(uint64_t target);  // hle_vi.cpp
 }
 
+namespace nx { void signal_vsync_from_present(); }
+
 namespace nx::nvn {
 
 // Submits the game made and submits whose replay (and GPU work, write-backs) finished. The game records the next frame
@@ -450,7 +452,7 @@ uint64_t pace_present(int interval) {
         const uint64_t wait_ns = custom_next - now;
         // High-res waitable timer wakes within ~0.5 ms (wider spin at >=120 FPS on Windows to absorb scheduler jitter).
 #ifdef _WIN32
-        const uint64_t kSpinMarginNs = custom_fps >= 120 ? 2'500'000ull : 500'000ull;
+        const uint64_t kSpinMarginNs = custom_fps >= 200 ? 4'500'000ull : custom_fps >= 120 ? 3'000'000ull : 500'000ull;
 #else
         constexpr uint64_t kSpinMarginNs = 500'000ull;
 #endif
@@ -546,7 +548,11 @@ int frame_cap() {
     return cap;
 }
 
-uint64_t pace_present_now() { return pace_present(g_present_interval.load(std::memory_order_relaxed)); }
+uint64_t pace_present_now() {
+    const uint64_t r = pace_present(g_present_interval.load(std::memory_order_relaxed));
+    if (frame_cap() > 60) nx::signal_vsync_from_present();
+    return r;
+}
 
 // A game asks for its own rate for a moment (games/wonder/seed_guard.cpp): the cap drops to fps until released
 // (0), the setting is untouched. held_frame_cap() is the hold in force (0: none).

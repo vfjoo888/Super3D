@@ -11,6 +11,7 @@
 #include <mutex>
 #include <thread>
 
+#include <nx/game.h>
 #include "nvn.h"
 #include "platform.h"
 
@@ -26,16 +27,18 @@ bool g_started = false;
 
 bool enabled() {
     static const bool on = [] {
-        // Off unless NX_REPLAY_THREAD=1: with the replay a frame behind, the course's render passes multiplied
-        // (1.3 M ended by target changes against 125 k) and it ran slower (docs/nvn/DEBUG.md #40).
         const char* e = std::getenv("NX_REPLAY_THREAD");
-        return e && e[0] == '1';
+        if (e && *e) return e[0] != '0';
+        // Off by default for Wonder (dynamic-resolution target aliasing, DEBUG.md #40);
+        // on by default for SM3DW so NVN replay + Vulkan present overlap with the CPU game thread.
+        return nx::game::kInfo.program_id != 0x010015100B514000ull;
     }();
     return on;
 }
 
 void run() {
     plat::set_thread_name("nvn replay");
+    plat::set_thread_high_priority();
     for (;;) {
         std::pair<uint64_t, std::function<void()>> job;
         {

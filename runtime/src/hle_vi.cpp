@@ -1,6 +1,7 @@
 // nn::vi (display/layers) and nv:: (graphics driver setup) at the API level. The layer is the platform's window
 // (Win32 window / Android surface); its handle is the "native window" the game hands to vkCreateViSurfaceNN, which
 // the Vulkan bridge turns into the platform's surface.
+#include <atomic>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
@@ -51,6 +52,7 @@ std::shared_ptr<EventState> g_vsync = std::make_shared<EventState>();
 std::mutex g_tick_m;
 std::condition_variable g_tick_cv;
 uint64_t g_ticks = 0;
+std::atomic<uint64_t> g_last_present_vsync_ns{0};
 
 void vsync_thread() {
     plat::set_thread_name("vsync");
@@ -68,17 +70,14 @@ void vsync_thread() {
             plat::sleep_ns(2'000'000);
             next = plat::monotonic_ns();
         } else if (cap > 60) {
-            // High-FPS mode (90/120/144/240): signal vsync faster than the target cap so pace_present()
-            // in nvn_queue.cpp owns the exact sub-millisecond frame pacing without double-waiting.
-            const uint64_t hz = std::min<uint64_t>(500, uint64_t(cap) * 2);
-            const uint64_t period = 1'000'000'000ull / hz;
-            next += period;
+            // High-FPS mode (90/120/144/240): signal_vsync_from_present() drives g_vsync in 1:1 lockstep with
+            // pace_present() so there is only one clock (no beat jitter against a second sleep timer).
+            // Only fall back to ticking here if no present happened in >30 ms (e.g. loading screens).
+            plat::sleep_ns(4'000'000);
             const uint64_t now = plat::monotonic_ns();
-            if (now >= next) {
-                next = now;
-            } else {
-                plat::sleep_ns(int64_t(next - now));
-            }
+            next = now;
+            const uint64_t last_p = g_last_present_vsync_ns.load(std::memory_order_relaxed);
+            if (last_p && now > last_p && now - last_p < 30'000'000ull) continue;
         } else if (plat::wait_vblank()) {
             next = plat::monotonic_ns();
         } else {
@@ -116,6 +115,17 @@ void GetDisplayVsyncEvent(CPU& c) {  // (os::SystemEventType*, Display*)
 }
 
 }  // namespace
+
+void signal_vsync_from_present() {
+    g_last_present_vsync_ns.store(plat::monotonic_ns(), std::memory_order_relaxed);
+    g_vsync->signaled = true;
+    notify_all();
+    {
+        std::lock_guard lk(g_tick_m);
+        g_ticks++;
+    }
+    g_tick_cv.notify_all();
+}
 
 // Waits until at least `target` vsyncs have passed since start; the count then.
 uint64_t vsync_wait(uint64_t target) {
