@@ -24,9 +24,18 @@ struct Pool {
     unsigned threads = 0;
     Pool() {
         unsigned n = std::thread::hardware_concurrency();
-        // Leave cores to the game's own threads; vkCreateGraphicsPipelines scales with threads on AMD and RADV.
+        // Leave cores to the game's own threads; vkCreateGraphicsPipelines scales with threads on RADV/NVIDIA.
         threads = n > 4 ? n - 2 : 2;
         if (threads > 12) threads = 12;
+#ifdef _WIN32
+        // Windows amdvlk64.dll crashes (0xc0000005) when many threads compile pipelines concurrently against a shared cache.
+        VkPhysicalDeviceProperties props{};
+        if (vk_physical() && p_vkGetPhysicalDeviceProperties) p_vkGetPhysicalDeviceProperties(vk_physical(), &props);
+        if (props.vendorID == 0x1002u) {
+            const char* par = std::getenv("NX_AMD_PARALLEL_PIPELINES");
+            if (!(par && par[0] == '1')) threads = 1;
+        }
+#endif
         for (unsigned k = 0; k < threads; k++)
             std::thread([this] {
                 plat::set_thread_low_priority();
