@@ -37,7 +37,7 @@ namespace {
 //   al::GameFrameworkNx::procFrame_        : 0x964e80 (virtual, vtable +0xe8)
 //   sead::ControllerMgr::calc              : 0x72fff0 (virtual, vtable +0xb0)
 //   GameSystem::movement                   : 0x412f00 (virtual, vtable +0x20)
-//   al::ModelDrawer::isDraw                : 0x870510 (called by every ModelDrawer*::draw)
+//   al::ModelDrawer*::draw                 : 11 virtual draw methods (all call ModelDrawer::isDraw 0x870510)
 //   al::LiveActorKit::clearGraphicsRequest : 0x82c080
 //   al::LiveActorKit::updateGraphics       : 0x82c090
 //   al::LiveActorKit::preDrawGraphics      : 0x82c0e0
@@ -46,7 +46,10 @@ namespace {
 constexpr uint64_t kOffProcFrame = 0x964e80;
 constexpr uint64_t kOffControllerMgrCalc = 0x72fff0;
 constexpr uint64_t kOffGameSystemMovement = 0x412f00;
-constexpr uint64_t kOffModelDrawerIsDraw = 0x870510;
+constexpr uint64_t kOffModelDrawerDraws[] = {
+    0x86ead0, 0x870a20, 0x870d00, 0x870fe0, 0x871180, 0x8717c0,
+    0x871c60, 0x872180, 0x8724e0, 0x9755b0, 0x975ba0,
+};
 constexpr uint64_t kOffLiveActorKitClearGraphics = 0x82c080;
 constexpr uint64_t kOffLiveActorKitUpdateGraphics = 0x82c090;
 constexpr uint64_t kOffLiveActorKitPreDrawGraphics = 0x82c0e0;
@@ -61,7 +64,7 @@ uint64_t g_main_base = 0;
 Fn g_orig_proc_frame = nullptr;
 Fn g_orig_controller_calc = nullptr;
 Fn g_orig_game_system_movement = nullptr;
-Fn g_orig_model_drawer_is_draw = nullptr;
+Fn g_orig_model_drawer_draws[std::size(kOffModelDrawerDraws)]{};
 Fn g_fn_clear_graphics = nullptr;
 Fn g_fn_update_graphics = nullptr;
 Fn g_fn_pre_draw_graphics = nullptr;
@@ -327,11 +330,8 @@ void interpolate_model_keeper(CPU& c, uint64_t keeper) {
     }
 }
 
-void hook_model_drawer_is_draw(CPU& c) {
-    if (!g_orig_model_drawer_is_draw) return;
-    const uint64_t drawer = c.x[0];
-    g_orig_model_drawer_is_draw(c);
-    if ((uint32_t(c.x[0]) & 1u) == 0) return;
+void interpolate_model_drawer(CPU& c, uint64_t drawer) {
+    if (!drawer || ld<int32_t>(drawer + 0x24) <= 0) return;
 
     const int cap = nvn::frame_cap();
     static const bool env_on = [] {
@@ -349,15 +349,15 @@ void hook_model_drawer_is_draw(CPU& c) {
     const uint64_t t_interp0 = plat::monotonic_ns();
     const uint64_t saved_x0 = c.x[0], saved_x1 = c.x[1];
 
-    const int32_t direct_cnt = drawer ? ld<int32_t>(drawer + 0x24) : 0;
-    const uint64_t direct_items = drawer ? ld<uint64_t>(drawer + 0x28) : 0;
+    const int32_t direct_cnt = ld<int32_t>(drawer + 0x24);
+    const uint64_t direct_items = ld<uint64_t>(drawer + 0x28);
     if (direct_cnt > 0 && direct_cnt <= 4096 && direct_items) {
         for (int32_t m = 0; m < direct_cnt; ++m) {
             interpolate_model_keeper(c, ld<uint64_t>(direct_items + uint64_t(m) * 8));
         }
     }
 
-    const uint64_t grp_arr = drawer ? ld<uint64_t>(drawer + 0x30) : 0;
+    const uint64_t grp_arr = ld<uint64_t>(drawer + 0x30);
     const int32_t grp_cnt = grp_arr ? ld<int32_t>(grp_arr) : 0;
     const uint64_t grp_items = grp_arr ? ld<uint64_t>(grp_arr + 8) : 0;
 
@@ -378,6 +378,19 @@ void hook_model_drawer_is_draw(CPU& c) {
     c.x[1] = saved_x1;
     g_prof_interp_ns += plat::monotonic_ns() - t_interp0;
 }
+
+template <size_t I>
+void hook_model_drawer_draw(CPU& c) {
+    interpolate_model_drawer(c, c.x[0]);
+    if (g_orig_model_drawer_draws[I]) g_orig_model_drawer_draws[I](c);
+}
+
+constexpr Fn kModelDrawerHooks[] = {
+    &hook_model_drawer_draw<0>, &hook_model_drawer_draw<1>, &hook_model_drawer_draw<2>,
+    &hook_model_drawer_draw<3>, &hook_model_drawer_draw<4>, &hook_model_drawer_draw<5>,
+    &hook_model_drawer_draw<6>, &hook_model_drawer_draw<7>, &hook_model_drawer_draw<8>,
+    &hook_model_drawer_draw<9>, &hook_model_drawer_draw<10>,
+};
 
 // ---- Core 60 Hz Fixed-Timestep Loop Hooks -------------------------------------------------------
 
@@ -549,7 +562,10 @@ void install_high_fps_hooks() {
     const bool ok1 = install_hook(lm, kOffProcFrame, &hook_proc_frame, g_orig_proc_frame);
     const bool ok2 = install_hook(lm, kOffControllerMgrCalc, &hook_controller_calc, g_orig_controller_calc);
     const bool ok3 = install_hook(lm, kOffGameSystemMovement, &hook_game_system_movement, g_orig_game_system_movement);
-    const bool ok4 = install_hook(lm, kOffModelDrawerIsDraw, &hook_model_drawer_is_draw, g_orig_model_drawer_is_draw);
+    bool ok4 = true;
+    for (size_t i = 0; i < std::size(kOffModelDrawerDraws); ++i) {
+        ok4 &= install_hook(lm, kOffModelDrawerDraws[i], kModelDrawerHooks[i], g_orig_model_drawer_draws[i]);
+    }
     g_hooks_installed = ok1 && ok2 && ok3 && ok4;
     log("sm3dw: high-fps hooks %s (procFrame=%d ctrl=%d move=%d model=%d)",
         g_hooks_installed ? "installed" : "FAILED", ok1 ? 1 : 0, ok2 ? 1 : 0, ok3 ? 1 : 0, ok4 ? 1 : 0);
