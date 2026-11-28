@@ -24,6 +24,15 @@ namespace nx {
 
 namespace {
 
+#if defined(__has_embed)
+#if __has_embed("../../third_party/fonts/Nunito/Nunito-SemiBold.ttf")
+#define NX_PL_EMBED_FONT 1
+static constexpr uint8_t kFallbackFont[] = {
+#embed "../../third_party/fonts/Nunito/Nunito-SemiBold.ttf"
+};
+#endif
+#endif
+
 struct Font {
     uint64_t addr = 0, size = 0;  // header + data, in guest memory
 };
@@ -62,10 +71,17 @@ const Font& font(uint32_t type) {
     candidates.push_back("C:/Windows/Fonts/arialuni.ttf");
     candidates.push_back("C:/Windows/Fonts/arial.ttf");
 #elif defined(__linux__)
-    // Common distribution fonts with wide coverage (Noto, Liberation: Arial's metrics, DejaVu).
+    // Common distribution fonts across Debian/Ubuntu, Fedora, Arch, openSUSE, and SteamOS.
     candidates.push_back("/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf");
+    candidates.push_back("/usr/share/fonts/google-noto/NotoSans-Regular.ttf");
+    candidates.push_back("/usr/share/fonts/noto/NotoSans-Regular.ttf");
     candidates.push_back("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf");
+    candidates.push_back("/usr/share/fonts/liberation-sans-fonts/LiberationSans-Regular.ttf");
+    candidates.push_back("/usr/share/fonts/liberation/LiberationSans-Regular.ttf");
     candidates.push_back("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf");
+    candidates.push_back("/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf");
+    candidates.push_back("/usr/share/fonts/TTF/DejaVuSans.ttf");
+    candidates.push_back("/usr/share/fonts/gnu-free/FreeSans.ttf");
 #endif
     std::vector<uint8_t> ttf;
     for (const auto& path : candidates) {
@@ -74,6 +90,16 @@ const Font& font(uint32_t type) {
             log("pl: shared font %u <- %s (%zu bytes)", type, path.c_str(), ttf.size());
             break;
         }
+    }
+#ifdef NX_PL_EMBED_FONT
+    if (ttf.empty()) {
+        ttf.assign(kFallbackFont, kFallbackFont + sizeof(kFallbackFont));
+        log("pl: shared font %u <- embedded Nunito fallback (%zu bytes)", type, ttf.size());
+    }
+#endif
+    if (ttf.empty() && type != 5) {
+        ttf = read_file(root + "shared_5.ttf");
+        if (!ttf.empty()) log("pl: shared font %u <- %sshared_5.ttf (%zu bytes)", type, root.c_str(), ttf.size());
     }
     if (ttf.empty()) log("pl: no font for shared font %u (put one in %s)", type, root.c_str());
 #if (defined(__linux__) && !defined(__ANDROID__)) || defined(_WIN32)

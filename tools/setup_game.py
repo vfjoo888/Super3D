@@ -363,6 +363,8 @@ class Setup:
     def step_menu(self, at, share):
         # Without this mod games/wonder/menu.cpp has no pane to act on: the pause menu has no Quit Game (the title
         # screen's hold-Minus still works). Not fatal: a RomFS the tool doesn't know only loses the entry.
+        if not os.path.isfile(os.path.join(self.romfs, "Layout", "Pause.Nin_NX_NVN.blarc.zs")):
+            return False
         out = os.path.join(self.data, "mods", MENU_MOD)
         shutil.rmtree(out, ignore_errors=True)
         try:
