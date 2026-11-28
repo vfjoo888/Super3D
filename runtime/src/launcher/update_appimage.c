@@ -1,5 +1,5 @@
 // Updating a Linux AppImage (launcher/update_appimage.h), from Savage Wind's runtime/update_appimage.c (MIT).
-#ifdef __linux__
+#if defined(__linux__) && !defined(__ANDROID__)
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE  // (execvpe)
 #endif
@@ -410,4 +410,12 @@ void appimage_relaunch(UpdateProblem *p) {
     fail(p, "relaunch", "The new version is installed but could not be started",
          "Reason: %s. Close this window and start SuperWonders again.", strerror(e));
 }
+#elif defined(__ANDROID__)
+#include "update_appimage.h"
+const char *appimage_path(void) { return NULL; }
+bool appimage_install(const char *work, const UcRelease *r, const char *pubkey_hex, volatile float *progress,
+                      UpdateProblem *p) { (void)work; (void)r; (void)pubkey_hex; (void)progress; (void)p; return false; }
+bool appimage_has_old(void) { return false; }
+void appimage_remove_old(void) {}
+void appimage_relaunch(UpdateProblem *p) { (void)p; }
 #endif

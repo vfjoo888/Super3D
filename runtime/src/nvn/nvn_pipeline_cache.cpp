@@ -129,10 +129,18 @@ void creation_log(uint64_t frames) {
     gpl_log();
     g_pipelines = g_pipeline_ns = g_astc = g_astc_ns = g_pipelines_skipped = 0;
     static uint64_t windows = 0;
-    if (++windows % 10 == 0) {
+    ++windows;
+#if defined(__ANDROID__)
+    if (windows % 60 == 0) {
+        save_pipeline_keys();
+        if (g_unsaved_pipelines.load(std::memory_order_relaxed) >= 128) pipeline_cache_save();
+    }
+#else
+    if (windows % 10 == 0) {
         save_pipeline_keys();
         if (g_unsaved_pipelines.load(std::memory_order_relaxed) >= 16) pipeline_cache_save();
     }
+#endif
 }
 
 }  // namespace nx::nvn

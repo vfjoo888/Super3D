@@ -28,6 +28,9 @@ if(NX_GAME STREQUAL "hades")
 else()
     set(NX_GEN_DEFAULT "${CMAKE_SOURCE_DIR}/private/${NX_GAME}/gen")
 endif()
+if(NX_GAME STREQUAL "super3d" AND NOT EXISTS "${NX_GEN_DEFAULT}/main" AND EXISTS "${CMAKE_SOURCE_DIR}/private/sm3dw/gen/main")
+    set(NX_GEN_DEFAULT "${CMAKE_SOURCE_DIR}/private/sm3dw/gen")
+endif()
 set(NX_GEN_DIR "${NX_GEN_DEFAULT}" CACHE PATH "Recompiled module sources")
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -349,7 +352,7 @@ set_source_files_properties(runtime/src/overlay/overlay_vk.cpp PROPERTIES
     COMPILE_DEFINITIONS "IMGUI_IMPL_VULKAN_NO_PROTOTYPES")
 file(GLOB NX_GAME_SOURCES CONFIGURE_DEPENDS "${NX_GAME_DIR}/*.cpp")
 list(APPEND NX_RUNTIME_SOURCES ${NX_GAME_SOURCES} ${NX_SHADER_SOURCES} runtime/src/gamelib.cpp)
-if(NX_GAME_LIBRARY OR NX_GAME STREQUAL "sm3dw" OR NX_GAME STREQUAL "super3d")
+if(NOT ANDROID AND (NX_GAME_LIBRARY OR NX_GAME STREQUAL "sm3dw" OR NX_GAME STREQUAL "super3d"))
     set(NX_HAS_LAUNCHER ON)
     # Launcher: the start screen before the game (setup, settings, mods, updates; launcher/launcher.h)
     list(APPEND NX_RUNTIME_SOURCES runtime/src/launcher/launcher.cpp runtime/src/launcher/game_version.cpp
@@ -531,7 +534,7 @@ else()
     endif()
 endif()
 
-if(NX_GAME STREQUAL "sm3dw" OR NX_GAME STREQUAL "super3d")
+if(NOT ANDROID AND (NX_GAME STREQUAL "sm3dw" OR NX_GAME STREQUAL "super3d"))
     set_target_properties(${NX_GAME} PROPERTIES OUTPUT_NAME "Super3D")
     add_custom_command(TARGET ${NX_GAME} POST_BUILD
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different

@@ -266,6 +266,7 @@ std::string default_data_root() { return g_root; }
 std::string data_root() { return g_root; }
 bool set_data_root(const std::string&) { return false; }
 void reload_pc_settings() {}
+void open_folder(const std::string&) {}
 
 std::string setting(const std::string& key) {
     std::ifstream f(g_root + "/config.txt");
@@ -587,6 +588,8 @@ extern "C" void android_main(android_app* app) {
                 setenv(line.substr(0, eq).c_str(), line.substr(eq + 1).c_str(), 0);
         }
         setenv("NX_HANDHELD", "1", 0);
+        setenv("NX_AFFINITY", "1", 0);
+        setenv("NX_GPU_TURBO", "1", 0);
     }
     // The heap (scudo) zero-fills every allocation and gives freed pages back at once by default: in the replay, a
     // memset under each allocation and madvise churn (docs/nvn/android-perf/PLAN.md, phase 2). NX_MALLOC_TUNE=0: as

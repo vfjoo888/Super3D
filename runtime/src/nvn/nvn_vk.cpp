@@ -806,6 +806,9 @@ uint64_t present_headless(uint64_t texture) {
 // window's painted screen when the ImGui overlay is off) and to the overlay's compile screen, which is presented here
 // on its own: a cleared swapchain image with the overlay on top, at most 30 times a second.
 static bool swapchain_size_mismatch() {
+#if defined(__ANDROID__)
+    return false;
+#else
     uint32_t pw = 0, ph = 0;
     plat::window_size(pw, ph);
     if (!pw || !ph) return false;
@@ -813,6 +816,7 @@ static bool swapchain_size_mismatch() {
     uint32_t ew = sideways ? g_sc_extent.height : g_sc_extent.width;
     uint32_t eh = sideways ? g_sc_extent.width : g_sc_extent.height;
     return pw != ew || ph != eh;
+#endif
 }
 
 static bool swapchain_needs_remake(VkResult r) {

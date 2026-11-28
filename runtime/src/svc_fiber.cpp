@@ -11,7 +11,7 @@
 
 #if defined(_WIN32)
 #include <windows.h>
-#else
+#elif !defined(__ANDROID__)
 #include <pthread.h>
 #include <ucontext.h>
 #endif
@@ -19,6 +19,24 @@
 namespace nx {
 
 void backtrace(CPU&);
+
+#if defined(__ANDROID__)
+
+namespace {
+
+void hle_initialize_fiber(CPU&) {
+    static bool logged = false;
+    if (!logged) { logged = true; log("fiber: InitializeFiber unsupported on Android"); }
+}
+void hle_switch_to_fiber(CPU&) {}
+void hle_finalize_fiber(CPU&) {}
+void hle_get_current_fiber(CPU& c) { c.x[0] = 0; }
+
+}  // namespace
+
+void dump_active_fibers(std::string (*)(uint64_t)) {}
+
+#else
 
 namespace {
 
@@ -496,6 +514,8 @@ void dump_active_fibers(std::string (*describe)(uint64_t)) {
             describe(hf->entry).c_str(), chain.c_str());
     }
 }
+
+#endif  // !__ANDROID__
 
 NX_HLE("_ZN2nn2os15InitializeFiberEPNS0_9FiberTypeEPFS2_PvES3_S3_mi", hle_initialize_fiber);
 NX_HLE("_ZN2nn2os13SwitchToFiberEPNS0_9FiberTypeE", hle_switch_to_fiber);

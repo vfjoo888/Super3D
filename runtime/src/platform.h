@@ -103,6 +103,16 @@ struct PadState {
     int32_t lx = 0, ly = 0, rx = 0, ry = 0;
 };
 void read_pad(PadState& p);  // player 1
+struct SixAxisState {
+    float accel[3]{0.0f, 0.0f, -1.0f};
+    float gyro[3]{0.0f, 0.0f, 0.0f};
+    bool connected = false;
+};
+struct TouchPoint {
+    bool down = false;
+    int32_t x = 0;
+    int32_t y = 0;
+};
 #if (defined(__linux__) && !defined(__ANDROID__)) || defined(_WIN32)
 std::array<std::string, 4> controller_names();
 bool player_connected(unsigned player);
@@ -117,16 +127,6 @@ struct ButtonPromptConfig {
 };
 ButtonPromptConfig button_prompt_config();
 bool upgrade_button_font(const std::string& out_path);
-struct SixAxisState {
-    float accel[3]{0.0f, 0.0f, -1.0f};
-    float gyro[3]{0.0f, 0.0f, 0.0f};
-    bool connected = false;
-};
-struct TouchPoint {
-    bool down = false;
-    int32_t x = 0;
-    int32_t y = 0;
-};
 bool read_sixaxis(unsigned player, SixAxisState& out);
 bool read_touch(TouchPoint& out);
 #endif

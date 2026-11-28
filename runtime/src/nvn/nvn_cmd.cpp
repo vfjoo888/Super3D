@@ -25,9 +25,55 @@ std::shared_ptr<CmdList> peek_list(uint64_t handle);
 
 namespace {
 
+struct CmdListPool {
+    std::mutex mu;
+    std::vector<CmdList*> free_lists;
+};
+
+CmdListPool& cmd_list_pool() {
+    static CmdListPool* p = new CmdListPool();  // leaked intentionally for safe shutdown order
+    return *p;
+}
+
+std::shared_ptr<CmdList> acquire_cmd_list() {
+    CmdList* raw = nullptr;
+    {
+        auto& pool = cmd_list_pool();
+        std::lock_guard lk(pool.mu);
+        if (!pool.free_lists.empty()) {
+            raw = pool.free_lists.back();
+            pool.free_lists.pop_back();
+        }
+    }
+    if (!raw) raw = new CmdList();
+    return std::shared_ptr<CmdList>(raw, [](CmdList* p) {
+        if (!p) return;
+        p->cmds.clear();
+        p->blobs.clear();
+        p->blob_arena.clear();
+        p->calls.clear();
+        p->handle = 0;
+        p->epoch = 0;
+        p->skinned = 0;
+        p->scanned_size = SIZE_MAX;
+        p->own_dispatches = 0;
+        if (p->cmds.capacity() > 65536 || p->blob_arena.capacity() > (2u << 20)) {
+            delete p;
+            return;
+        }
+        auto& pool = cmd_list_pool();
+        std::lock_guard lk(pool.mu);
+        if (pool.free_lists.size() < 32) {
+            pool.free_lists.push_back(p);
+            return;
+        }
+        delete p;
+    });
+}
+
 struct CommandBuffer : Object {
     std::mutex lock;
-    std::shared_ptr<CmdList> recording = std::make_shared<CmdList>();
+    std::shared_ptr<CmdList> recording = acquire_cmd_list();
     // The memory the game hands over (AddCommandMemory / AddControlMemory) and what recording "uses" of it. Engines
     // look at the used amounts right after EndRecording (a list that used nothing is dropped, never submitted) and
     // at the free ones (to add memory in time), so usage grows with the commands recorded, survives EndRecording
@@ -149,7 +195,7 @@ void CommandBufferFinalize(CPU& c) { destroy(c.x[0]); }
 void CommandBufferBeginRecording(CPU& c) {
     if (auto* cb = get<CommandBuffer>(c.x[0])) {
         std::lock_guard lk(cb->lock);
-        cb->recording = std::make_shared<CmdList>();
+        cb->recording = acquire_cmd_list();
         cb->recording->cmds.reserve(cb->last_cmd_cap);
         cb->recording->blobs.reserve(cb->last_blob_cap);
         cb->recording->blob_arena.reserve(cb->last_blob_bytes);
@@ -201,7 +247,7 @@ bool skinned_program(uint64_t program) {
 }
 
 void CommandBufferEndRecording(CPU& c) {  // NVNcommandHandle
-    std::shared_ptr<CmdList> list = std::make_shared<CmdList>();
+    std::shared_ptr<CmdList> list = acquire_cmd_list();
     uint64_t start = 0, end = 0, pool = 0;
     const uint64_t cb_guest = c.x[0];
     if (auto* cb = get<CommandBuffer>(c.x[0])) {
